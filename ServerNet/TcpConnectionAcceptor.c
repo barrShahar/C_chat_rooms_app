@@ -150,6 +150,7 @@ static void* TcpConnectionAcceptor_AcceptLoop(void* a_acceptor)
     LOG_INFO("Acceptor thread is on listen");
     while (acceptor->m_state == ACCEPTOR_STATE_RUNNING)
     {
+        // 1. Accept the connection
         int fdConnectionToClient = accept(acceptor->m_listenFd,
             (struct sockaddr *)&client_addr,
             &addr_len);
@@ -161,27 +162,33 @@ static void* TcpConnectionAcceptor_AcceptLoop(void* a_acceptor)
             continue;
         }
 
-        static char ipBuffer[16];
+        // 2. Create the record
+        char ipBuffer[16];
         network_convert_ip_n_to_p(client_addr.sin_addr.s_addr, ipBuffer);
-        
-        
-        TcpConnectionRecord* record = malloc(sizeof(TcpConnectionRecord));
+        uint16_t clientPort = ntohs(client_addr.sin_port);
+
+        TcpConnectionRecord* record = TcpConnectionRecord_Create(
+            fdConnectionToClient, ipBuffer, clientPort);
         if (record == NULL)
         {
-            LOG_ERROR("TcpConnectionAcceptor_AcceptLoop: allocation of TCP record failed: %s", strerror(errno));
+            LOG_ERROR("TcpConnectionAcceptor_AcceptLoop: record allocation failed");
+            close(fdConnectionToClient);
             continue;
         }
 
-        record->m_fdConnection = fdConnectionToClient;
-        strcpy(record->m_ip, ipBuffer);
-        record->m_port = ntohs(client_addr.sin_port);
-        
-        TcpServerController_ProcessConnection(acceptor->m_tcpCtrl, record);
+        // 3. Pass to the controller to process the connection
+        TcpResult result = TcpServerController_ProcessConnection(
+            acceptor->m_tcpCtrl, record);
+        if (result != TCP_RESULT_SUCCESS)
+        {
+            LOG_ERROR("TcpConnectionAcceptor_AcceptLoop: failed to process connection: %s",
+                TcpResult_ToString(result));
+            TcpConnectionRecord_Destroy(&record);
+            continue;
+        }
 
-        LOG_INFO("TcpConnectionAcceptor_AcceptLoop: new client connected: %d [%s:%d]", 
-            fdConnectionToClient, 
-            ipBuffer,
-            ntohs(client_addr.sin_port));
+        LOG_INFO("TcpConnectionAcceptor_AcceptLoop: new client connected: %d [%s:%d]",
+            fdConnectionToClient, ipBuffer, clientPort);
     }
     
     return NULL;

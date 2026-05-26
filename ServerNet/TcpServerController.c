@@ -9,6 +9,23 @@
 
 static char* CopyString(const char* a_string);
 
+const char* TcpResult_ToString(TcpResult a_result)
+{
+    switch (a_result)
+    {
+    case TCP_RESULT_SUCCESS:                 return "success";
+    case TCP_RESULT_NULL_PTR:                return "null pointer";
+    case TCP_RESULT_ALLOCATION_FAILED:       return "allocation failed";
+    case TCP_RESULT_SOCKET_ERROR:            return "socket error";
+    case TCP_RESULT_BIND_ERROR:              return "bind error";
+    case TCP_RESULT_LISTEN_ERROR:            return "listen error";
+    case TCP_RESULT_ACCEPT_ERROR:            return "accept error";
+    case TCP_RESULT_CONNECTION_CLOSED:       return "connection closed";
+    case TCP_RESULT_THREAD_CREATION_FAILED:  return "thread creation failed";
+    default:                                 return "unknown";
+    }
+}
+
 typedef enum {
     SERVER_STATE_STOPPED,
     SERVER_STATE_RUNNING
@@ -123,7 +140,17 @@ TcpResult TcpServerController_Start(TcpServerController* a_ctrl)
 void
 TcpServerController_Stop(TcpServerController* a_ctrl)
 {
-    if (a_ctrl == NULL) return;
+    if (a_ctrl == NULL) 
+    {
+        return;
+    }
+
+    if (a_ctrl->m_state == SERVER_STATE_STOPPED)
+    {
+        LOG_WARN("server '%s' is already stopped", a_ctrl->m_name);
+        return;
+    }
+
     TcpConnectionAcceptor_Stop(a_ctrl->m_connectionAcceptor);
     TcpConnectionHandler_Stop(a_ctrl->m_connectionHandler);
     a_ctrl->m_state = SERVER_STATE_STOPPED;
@@ -131,24 +158,53 @@ TcpServerController_Stop(TcpServerController* a_ctrl)
 }
 
 TcpResult
-TcpServerController_ProcessConnection(TcpServerController* a_controller, TcpConnectionRecord* a_record)
+TcpServerController_ProcessConnection(TcpServerController* a_controller,
+    TcpConnectionRecord* a_record)
 {
+    if (a_controller == NULL || a_record == NULL)
+    {
+        return TCP_RESULT_NULL_PTR;
+    }
 
+    // 1. Add the connection to the handler
     TcpResult resultHandlerDb =
         TcpConnectionHandler_AddConnection(a_controller->m_connectionHandler, a_record);
 
+    // 2. Handle if error occurred
     if (resultHandlerDb != TCP_RESULT_SUCCESS)
     {
-        // Delete record
+        LOG_ERROR("failed to add connection to handler: %s", TcpResult_ToString(resultHandlerDb));
+        return resultHandlerDb; // The acceptor must destroy the record
     }
 
-    LOG_DEBUG("new connection from %s:%d (fd=%d)", a_record->m_ip, a_record->m_port, a_record->m_fdConnection);
+    
+    LOG_DEBUG("new connection from %s:%d (fd=%d)",
+        a_record->m_ip, a_record->m_port, a_record->m_fdConnection);
+
+    // 3. Notify the application about the new connection
     if (a_controller->m_callbackNewConnection)
     {
         a_controller->m_callbackNewConnection(a_record);
     }
     return TCP_RESULT_SUCCESS;
 }
+
+TcpResult 
+TcpServerController_ProcessMessage(
+    TcpServerController* a_controller, 
+    const TcpConnectionRecord* a_record, 
+    const char* a_message, size_t a_length)
+{
+    if (a_controller == NULL || a_record == NULL || a_message == NULL) return TCP_RESULT_NULL_PTR;
+    if (a_length == 0) return TCP_RESULT_INVALID_ARGUMENT;
+
+    if (a_controller->m_callbackMessageReceived)
+    {
+        a_controller->m_callbackMessageReceived(a_record, a_message, a_length);
+    }
+    return TCP_RESULT_SUCCESS;
+}
+
 
 TcpResult
 TcpServerController_ProcessDisconnect(TcpServerController* a_controller, TcpConnectionRecord* a_record)
@@ -165,21 +221,7 @@ TcpServerController_ProcessDisconnect(TcpServerController* a_controller, TcpConn
     return TCP_RESULT_SUCCESS;
 }
 
-TcpResult
-TcpServerController_ProcessMessage(TcpServerController* a_controller, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length)
-{
-    if (a_controller == NULL)
-    {
-        return TCP_RESULT_NULL_PTR;
-    }
-    if (a_controller->m_callbackMessageReceived)
-    {
-        a_controller->
-            m_callbackMessageReceived(a_record, a_message, a_length);
-    }
-        
-    return TCP_RESULT_SUCCESS;
-}
+
 
 TcpResult 
 TcpServerController_SetCallbacks(TcpServerController* a_controller, 

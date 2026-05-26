@@ -13,6 +13,7 @@ typedef enum TcpResult
 {
     TCP_RESULT_SUCCESS = 0,
     TCP_RESULT_NULL_PTR,
+    TCP_RESULT_INVALID_ARGUMENT,
     TCP_RESULT_ALLOCATION_FAILED,
     TCP_RESULT_SOCKET_ERROR,
     TCP_RESULT_BIND_ERROR,
@@ -21,6 +22,11 @@ typedef enum TcpResult
     TCP_RESULT_CONNECTION_CLOSED,
     TCP_RESULT_THREAD_CREATION_FAILED
 } TcpResult;
+
+/**
+
+ */
+const char* TcpResult_ToString(TcpResult a_result);
 
 /**
  * @brief Create a TCP server controller
@@ -77,10 +83,15 @@ void TcpServerController_Stop(TcpServerController* a_controller);
  * @brief Process a newly accepted connection
  *
  * @params a_controller : A previously created TcpServerController
- * @params a_record     : Connection record of the new client
+ * @params a_record     : Connection record (caller must create via TcpConnectionRecord_Create)
+ *
+ * On success, ownership of @a_record transfers to the connection handler.
+ * On failure, ownership remains with the caller, which must destroy @a_record.
+ *
  * @return TCP_RESULT_SUCCESS on success or an error code on failure
  */
-TcpResult TcpServerController_ProcessConnection(TcpServerController* a_controller, TcpConnectionRecord* a_record);
+TcpResult TcpServerController_ProcessConnection(TcpServerController* a_controller,
+    TcpConnectionRecord* a_record);
 
 /**
  * @brief Process a client disconnection
