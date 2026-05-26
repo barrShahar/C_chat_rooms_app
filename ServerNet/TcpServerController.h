@@ -1,6 +1,19 @@
 #ifndef __TCP_SERVER_CONTROLLER_H__
 #define __TCP_SERVER_CONTROLLER_H__
 
+/**
+ * Threading contract
+ *
+ * - TcpServerController_Start spawns an acceptor thread and a handler thread.
+ * - Callbacks registered via TcpServerController_SetCallbacks are invoked on
+ *   those worker threads (not on the thread that called Start). Implementations
+ *   must be thread-safe if they share state with the main thread or with each other.
+ * - Call TcpServerController_SetCallbacks before TcpServerController_Start.
+ *   SetCallbacks while the server is running returns TCP_RESULT_INVALID_ARGUMENT.
+ * - Start, Stop, Destroy, and SetCallbacks are serialized internally; they may be
+ *   called from the main thread only (not concurrently with each other).
+ * - Stop and Destroy are idempotent.
+ */
 
 #include <stddef.h>  /* size_t */
 #include <stdint.h>  /* uint16_t, uint32_t */
@@ -54,12 +67,15 @@ void TcpServerController_Destroy(TcpServerController** a_controller);
 /**
  * @brief Register the callbacks invoked by the controller
  * @details Each callback may be NULL to disable that notification.
+ *          Must be called before Start. Callbacks run on worker threads; see
+ *          threading contract at the top of this header.
  *
  * @params a_controller              : A previously created TcpServerController
  * @params a_callbackNewConnection   : Called on new client connection
  * @params a_callbackDisconnect      : Called on client disconnect
  * @params a_callbackMessageReceived : Called on incoming message
- * @return TCP_RESULT_SUCCESS on success or an error code on failure
+ * @return TCP_RESULT_SUCCESS on success, TCP_RESULT_INVALID_ARGUMENT if the
+ *         server is already running, or another error code on failure
  */
 TcpResult TcpServerController_SetCallbacks(TcpServerController* a_controller,
     void (*a_callbackNewConnection)(const TcpConnectionRecord* a_record),

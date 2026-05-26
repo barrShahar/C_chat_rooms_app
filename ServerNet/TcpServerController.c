@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include "TcpServerController.h"
 #include "TcpConnectionAcceptor.h"
 #include "network_utils.h"
@@ -7,7 +9,63 @@
 #include "TcpConnectionRecord.h"
 #include "logger.h"
 
+/* ----------------------------------------------------------------------------
+ * Threading model
+ * ----------------------------------------------------------------------------
+ * The controller is the synchronization root for the whole server.
+ *
+ * Threads that touch a TcpServerController instance:
+ *
+ *   1. Owner thread: calls Create / Start / Stop / Destroy / SetCallbacks /
+ *      Get*. The public lifecycle/configuration API is serialized by
+ *      m_lock so it is safe to call these from any single thread, but
+ *      callers must NOT call them concurrently from multiple threads
+ *      (the contract documented in the header).
+ *
+ *   2. Acceptor thread: calls ProcessConnection, which forwards to the
+ *      handler and then invokes m_callbackNewConnection (if set).
+ *
+ *   3. Handler worker thread: calls ProcessMessage and ProcessDisconnect,
+ *      which invoke the corresponding callbacks.
+ *
+ * Shared mutable state:
+ *   - m_state: _Atomic ServerState. Tracks RUNNING/STOPPED. Read by all
+ *              three threads (workers don't read it directly today, but
+ *              the owner reads it inside Start/Stop). Written only under
+ *              m_lock by the owner.
+ *   - m_lock:  serializes the lifecycle/configuration calls. The hot path
+ *              (ProcessConnection/Message/Disconnect) does NOT take this
+ *              lock — see the "callback pointers" note below.
+ *
+ * Effectively-immutable-after-Create state (no synchronization needed):
+ *   - m_name, m_ip, m_port, m_connectionAcceptor, m_connectionHandler
+ *
+ * Callback pointers (m_callbackNewConnection / Disconnect / MessageReceived):
+ *   These are read on the hot path by worker threads, with NO lock. That
+ *   is only safe because we require SetCallbacks to be called BEFORE
+ *   Start (enforced: SetCallbacks returns INVALID_ARGUMENT if state is
+ *   RUNNING). The pthread_create inside Start acts as a happens-before
+ *   edge, so worker threads observe the final callback values. After
+ *   Stop joins the workers (also a happens-before edge), SetCallbacks
+ *   may be called again before another Start.
+ *
+ * Lock ordering:
+ *   m_lock is the only lock in this module. It is NEVER held while
+ *   calling into the acceptor or handler subsystems EXCEPT in Start
+ *   (which calls *_Start) and Destroy/Stop (which call *_Stop and
+ *   *_Destroy). Those subordinate calls do not call back into the
+ *   controller, so no inversion is possible. Critically, the worker-
+ *   thread paths (ProcessConnection/Message/Disconnect) never acquire
+ *   m_lock, so Stop holding m_lock while calling pthread_join in the
+ *   subordinate Stop functions cannot deadlock.
+ * ---------------------------------------------------------------------------- */
+
 static char* CopyString(const char* a_string);
+
+/* StopUnlocked is the internal stop primitive. It does NOT take m_lock and
+ * MUST be called with m_lock already held. Used by both Stop() (which
+ * locks first) and Destroy() (which locks once for the whole tear-down). */
+static void StopUnlocked(TcpServerController* a_ctrl);
 
 const char* TcpResult_ToString(TcpResult a_result)
 {
@@ -33,15 +91,28 @@ typedef enum {
 
 struct TcpServerController
 {
+    /* Immutable after Create: safe to read from any thread without sync. */
     char* m_name;
     TcpConnectionAcceptor* m_connectionAcceptor;
     TcpConnectionHandler* m_connectionHandler;
-
-    ServerState m_state;
     uint32_t m_ip;
     uint16_t m_port;
 
-    // Callbacks
+    /* _Atomic so the lifecycle calls can do fast lockless reads
+     * (e.g. an "already running?" check) and so any future read from a
+     * worker thread is well-defined. All WRITES happen under m_lock. */
+    _Atomic ServerState m_state;
+
+    /* Guards the lifecycle/configuration API:
+     *   Start / Stop / Destroy / SetCallbacks
+     * Does NOT guard the hot path (ProcessConnection / Message / Disconnect)
+     * — those rely on the "callbacks are immutable while RUNNING" invariant. */
+    pthread_mutex_t m_lock;
+
+    /* Callbacks: only mutated by SetCallbacks, which requires state==STOPPED
+     * (enforced under m_lock). Read by worker threads on the hot path with
+     * no lock. The happens-before edges through pthread_create (in Start)
+     * and pthread_join (in Stop) make this safe. */
     void (*m_callbackNewConnection)(const TcpConnectionRecord* a_record);
     void (*m_callbackDisconnect)(const TcpConnectionRecord* a_record);
     void (*m_callbackMessageReceived)(const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
@@ -50,17 +121,6 @@ struct TcpServerController
 TcpServerController* 
 TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t a_port)
 {
-    if (a_name == NULL || a_ip == NULL)
-    {
-        LOG_ERROR("Invalid arguments: name or IP is NULL");
-        return NULL;
-    }
-    if (!is_valid_ip_address(a_ip))
-    {
-        LOG_ERROR("Invalid IP address string format provided: %s", a_ip);
-        return NULL;
-    }
-
     TcpServerController* controller = (TcpServerController*)malloc(sizeof(TcpServerController));
     if (controller == NULL)
     {
@@ -69,25 +129,47 @@ TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t 
     controller->m_name = CopyString(a_name);
     if (controller->m_name == NULL)
     {
-        LOG_ERROR("Allocation error while copying server name");
         free(controller);
         return NULL;
     }
-    controller->m_ip = ntohl(network_convert_ip_p_to_n(a_ip));
+    controller->m_ip = network_convert_ip_p_to_n(a_ip);
     controller->m_port = a_port;
-    controller->m_state = SERVER_STATE_STOPPED;
+    /* Initialize state BEFORE the mutex so that if mutex init fails we have
+     * not yet committed to any threading-related resource we'd need to
+     * tear down. Atomic store on a single-threaded controller is trivially
+     * fine but kept for symmetry with the rest of the code. */
+    atomic_store(&controller->m_state, SERVER_STATE_STOPPED);
+    if (pthread_mutex_init(&controller->m_lock, NULL) != 0)
+    {
+        free(controller->m_name);
+        free(controller);
+        return NULL;
+    }
 
     controller->m_connectionAcceptor = TcpConnectionAcceptor_Create(controller);
     controller->m_connectionHandler = TcpConnectionHandler_Create(controller);
 
     if (controller->m_connectionAcceptor == NULL || controller->m_connectionHandler == NULL)
     {
-        TcpServerController_Destroy(&controller);   // Destroy function can handle NULL
+        TcpServerController_Destroy(&controller);
         return NULL;
     }
 
     LOG_INFO("server '%s' created on %s:%d", a_name, a_ip, a_port);
     return controller;
+}
+
+TcpResult 
+TcpServerController_Display(TcpServerController* a_ctrl)
+{
+    if (a_ctrl == NULL)
+    {
+        return TCP_RESULT_NULL_PTR;
+    }
+
+    LOG_DEBUG("Display: name=%s ip=%u port=%d state=%d", a_ctrl->m_name, a_ctrl->m_ip, a_ctrl->m_port,
+        (int)atomic_load(&a_ctrl->m_state));
+    return TCP_RESULT_SUCCESS;
 }
 
 void 
@@ -97,68 +179,113 @@ TcpServerController_Destroy(TcpServerController** a_ctrl)
     {
         return;
     }
-    TcpServerController* controller = *a_ctrl;  // Alias
+    TcpServerController* controller = *a_ctrl;
 
-    // Ensure the server is stopped before freeing memory 
-    // This stops threads, closes listener sockets, etc.
-    if (controller->m_state == SERVER_STATE_RUNNING)
-    {
-        TcpServerController_Stop(controller); 
-    }
-
-    // These functions safely handle pointers to NULL
+    /* Hold m_lock across the whole tear-down so that no concurrent
+     * Start/Stop/SetCallbacks can sneak in while we are destroying
+     * subobjects. We use StopUnlocked (not Stop) here because Stop
+     * would recursively try to lock m_lock and we'd self-deadlock. */
+    pthread_mutex_lock(&controller->m_lock);
+    StopUnlocked(controller);
     TcpConnectionAcceptor_Destroy(&controller->m_connectionAcceptor);
     TcpConnectionHandler_Destroy(&controller->m_connectionHandler);
+    pthread_mutex_unlock(&controller->m_lock);
 
+    /* Safe to destroy the mutex now: workers are joined (via StopUnlocked
+     * -> *_Stop -> pthread_join) and no other thread can be racing us. */
+    pthread_mutex_destroy(&controller->m_lock);
     free(controller->m_name);
     free(controller);
     *a_ctrl = NULL;
 }
 
-TcpResult 
-TcpServerController_Start(TcpServerController* a_ctrl)
+TcpResult TcpServerController_Start(TcpServerController* a_ctrl)
 {
     if (a_ctrl == NULL)
     {
         return TCP_RESULT_NULL_PTR;
     }
 
-    if (a_ctrl->m_state == SERVER_STATE_RUNNING)
+    /* Lock for the whole transition so that two threads racing on Start
+     * cannot both pass the "already running?" check and spawn workers twice. */
+    pthread_mutex_lock(&a_ctrl->m_lock);
+
+    if (atomic_load(&a_ctrl->m_state) == SERVER_STATE_RUNNING)
     {
         LOG_WARN("server '%s' is already running", a_ctrl->m_name);
-        return TCP_RESULT_SUCCESS; // Or return a specific error like TCP_RESULT_ALREADY_RUNNING
+        pthread_mutex_unlock(&a_ctrl->m_lock);
+        return TCP_RESULT_SUCCESS;
     }
 
-    if (TcpConnectionAcceptor_Start(a_ctrl->m_connectionAcceptor) != TCP_RESULT_SUCCESS 
+    /* If either subsystem fails to start, roll back the one that may have
+     * partially started. *_Stop is idempotent so calling it on a never-
+     * started subsystem is harmless (it'll see STOPPED and return).
+     * pthread_create inside *_Start is the happens-before edge that
+     * publishes the callback pointers to the new worker threads. */
+    if (TcpConnectionAcceptor_Start(a_ctrl->m_connectionAcceptor) != TCP_RESULT_SUCCESS
         || TcpConnectionHandler_Start(a_ctrl->m_connectionHandler) != TCP_RESULT_SUCCESS)
     {
+        TcpConnectionAcceptor_Stop(a_ctrl->m_connectionAcceptor);
+        TcpConnectionHandler_Stop(a_ctrl->m_connectionHandler);
+        pthread_mutex_unlock(&a_ctrl->m_lock);
         return TCP_RESULT_THREAD_CREATION_FAILED;
     }
 
-    a_ctrl->m_state = SERVER_STATE_RUNNING;
+    atomic_store(&a_ctrl->m_state, SERVER_STATE_RUNNING);
+    pthread_mutex_unlock(&a_ctrl->m_lock);
     return TCP_RESULT_SUCCESS;
+}
+
+/* MUST be called with m_lock held. Tears down the worker threads in both
+ * subsystems and flips the state to STOPPED. Both *_Stop calls are
+ * idempotent and join their respective worker threads internally, so
+ * after this returns no worker is running on behalf of this controller. */
+static void
+StopUnlocked(TcpServerController* a_ctrl)
+{
+    if (atomic_load(&a_ctrl->m_state) == SERVER_STATE_STOPPED)
+    {
+        return;
+    }
+
+    /* Order matters slightly: stop the acceptor first so no new connections
+     * arrive at the handler mid-shutdown. */
+    TcpConnectionAcceptor_Stop(a_ctrl->m_connectionAcceptor);
+    TcpConnectionHandler_Stop(a_ctrl->m_connectionHandler);
+    atomic_store(&a_ctrl->m_state, SERVER_STATE_STOPPED);
+    LOG_INFO("server '%s' stopped", a_ctrl->m_name);
 }
 
 void
 TcpServerController_Stop(TcpServerController* a_ctrl)
 {
-    if (a_ctrl == NULL) 
+    if (a_ctrl == NULL)
     {
         return;
     }
 
-    if (a_ctrl->m_state == SERVER_STATE_STOPPED)
+    /* Lock so that two concurrent Stop()s, or a Stop() racing a Start(),
+     * are serialized. The underlying *_Stop functions are themselves
+     * idempotent (atomic_exchange-based), but the controller's state
+     * flag transition needs the surrounding lock to stay consistent. */
+    pthread_mutex_lock(&a_ctrl->m_lock);
+
+    if (atomic_load(&a_ctrl->m_state) == SERVER_STATE_STOPPED)
     {
         LOG_WARN("server '%s' is already stopped", a_ctrl->m_name);
+        pthread_mutex_unlock(&a_ctrl->m_lock);
         return;
     }
 
-    TcpConnectionAcceptor_Stop(a_ctrl->m_connectionAcceptor);
-    TcpConnectionHandler_Stop(a_ctrl->m_connectionHandler);
-    a_ctrl->m_state = SERVER_STATE_STOPPED;
-    LOG_INFO("server '%s' stopped", a_ctrl->m_name);
+    StopUnlocked(a_ctrl);
+    pthread_mutex_unlock(&a_ctrl->m_lock);
 }
 
+/* Called on the ACCEPTOR thread (hot path). Deliberately lock-free:
+ *   - m_connectionHandler is immutable after Create.
+ *   - m_callbackNewConnection is immutable while the server is RUNNING
+ *     (SetCallbacks is rejected when running), so reading it here without
+ *     a lock is safe. */
 TcpResult
 TcpServerController_ProcessConnection(TcpServerController* a_controller,
     TcpConnectionRecord* a_record)
@@ -168,22 +295,21 @@ TcpServerController_ProcessConnection(TcpServerController* a_controller,
         return TCP_RESULT_NULL_PTR;
     }
 
-    // 1. Add the connection to the handler
+    /* 1. Hand the record to the handler. On success, ownership transfers. */
     TcpResult resultHandlerDb =
         TcpConnectionHandler_AddConnection(a_controller->m_connectionHandler, a_record);
 
-    // 2. Handle if error occurred
     if (resultHandlerDb != TCP_RESULT_SUCCESS)
     {
         LOG_ERROR("failed to add connection to handler: %s", TcpResult_ToString(resultHandlerDb));
         return resultHandlerDb; // The acceptor must destroy the record
     }
 
-    
     LOG_DEBUG("new connection from %s:%d (fd=%d)",
         a_record->m_ip, a_record->m_port, a_record->m_fdConnection);
 
-    // 3. Notify the application about the new connection
+    /* 2. Notify the application. The callback runs on THIS thread (the
+     * acceptor thread), not on the original Start() caller's thread. */
     if (a_controller->m_callbackNewConnection)
     {
         a_controller->m_callbackNewConnection(a_record);
@@ -191,6 +317,9 @@ TcpServerController_ProcessConnection(TcpServerController* a_controller,
     return TCP_RESULT_SUCCESS;
 }
 
+/* Called on the HANDLER worker thread (hot path). Lock-free for the same
+ * reason as ProcessConnection: the callback pointer is immutable while
+ * the server is RUNNING. */
 TcpResult 
 TcpServerController_ProcessMessage(
     TcpServerController* a_controller, 
@@ -208,16 +337,20 @@ TcpServerController_ProcessMessage(
 }
 
 
+/* Called on the HANDLER worker thread. Same lock-free contract as the
+ * other Process* functions. */
 TcpResult
 TcpServerController_ProcessDisconnect(TcpServerController* a_controller, TcpConnectionRecord* a_record)
 {
-    if (a_controller == NULL) { return TCP_RESULT_NULL_PTR; }
+    if (a_controller == NULL) return TCP_RESULT_NULL_PTR; 
 
     if (a_controller->m_callbackDisconnect)
     {
         a_controller->m_callbackDisconnect(a_record);
     }
 
+    LOG_DEBUG("disconnected from %s:%d (fd=%d)",
+        a_record->m_ip, a_record->m_port, a_record->m_fdConnection);
     TcpConnectionRecord_Destroy(&a_record);
 
     return TCP_RESULT_SUCCESS;
@@ -235,9 +368,25 @@ TcpServerController_SetCallbacks(TcpServerController* a_controller,
     {
         return TCP_RESULT_NULL_PTR;
     }
+
+    pthread_mutex_lock(&a_controller->m_lock);
+
+    /* Reject mutation while workers are running. This is the linchpin that
+     * makes the lock-free reads in ProcessConnection/Message/Disconnect
+     * safe: callback pointers are guaranteed to be a frozen, fully-
+     * published snapshot for the entire RUNNING phase. Returning an error
+     * (rather than silently doing nothing) makes the misuse loud. */
+    if (atomic_load(&a_controller->m_state) == SERVER_STATE_RUNNING)
+    {
+        pthread_mutex_unlock(&a_controller->m_lock);
+        return TCP_RESULT_INVALID_ARGUMENT;
+    }
+
     a_controller->m_callbackNewConnection = a_callbackNewConnection;
     a_controller->m_callbackDisconnect = a_callbackDisconnect;
     a_controller->m_callbackMessageReceived = a_callbackMessageReceived;
+
+    pthread_mutex_unlock(&a_controller->m_lock);
     return TCP_RESULT_SUCCESS;
 }
 

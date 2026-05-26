@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <string.h>
 #include "TcpConnectionHandler.h"
 #include "TcpServerController.h"
@@ -12,6 +13,43 @@
 #include "logger.h"
 #include "config.h"
 
+/* ----------------------------------------------------------------------------
+ * Threading model
+ * ----------------------------------------------------------------------------
+ * Threads that touch a TcpConnectionHandler instance:
+ *
+ *   1. Owner thread (main): Create / Start / Stop / Destroy. These are
+ *      serialized by the parent controller's mutex, so no per-handler lock
+ *      is needed for lifecycle management.
+ *
+ *   2. Acceptor thread: calls TcpConnectionHandler_AddConnection(), which
+ *      pushes a TcpConnectionRecord pointer through the self-pipe.
+ *
+ *   3. Handler worker thread (spawned in Start): runs ClientHandlerIOLoop,
+ *      blocks in select(), services client fds, and is the SOLE owner of
+ *      the connections list and the fd_set after Start.
+ *
+ * Cross-thread communication:
+ *   - m_state:      _Atomic. Written by owner (Start/Stop), read by worker.
+ *   - m_wakeupPipe: the self-pipe trick. A pipe(2) write of sizeof(void*)
+ *                   bytes is atomic per POSIX, so the acceptor can shove a
+ *                   record pointer through it without any lock. The worker
+ *                   sees pipe[0] become readable inside its select() and
+ *                   reads the pointer back out. A NULL pointer through the
+ *                   pipe doubles as the "wake up, you've been told to stop"
+ *                   signal from Stop().
+ *
+ * Single-owner invariants (held by the worker thread once Start returns):
+ *   - m_connectionsDB:    the list is constructed in Create, then mutated
+ *                         exclusively from the worker (ProcessNewConnection
+ *                         appends, ProcessClientData removes). Destroy is
+ *                         only called AFTER pthread_join, so no concurrent
+ *                         access is possible.
+ *   - m_activeFdSet,
+ *     m_activeFdSetCopy,
+ *     m_maxFd:            same story. Only the worker reads or writes them
+ *                         while the thread is alive.
+ * ---------------------------------------------------------------------------- */
 
 
 typedef enum {
@@ -23,16 +61,20 @@ struct TcpConnectionHandler
 {
     TcpServerController* m_tcpCtrl;
     pthread_t m_thread;
-    HandlerState m_state;
-    List* m_connectionsDB;
+    /* _Atomic for the same reason as the acceptor's m_state: read every
+     * iteration of the IO loop, written by Stop() from another thread. */
+    _Atomic HandlerState m_state;
+    List* m_connectionsDB;          /* worker-thread-only after Start */
 
-    // For select design pattern
+    /* select() book-keeping. All of these are worker-thread-private. */
     int m_maxFd;
     fd_set m_activeFdSet;
     fd_set m_activeFdSetCopy;
     size_t m_numberOfClients;
 
-    // Self-pipe: write a TcpConnectionRecord* through [1] to wake up select() on [0]
+    /* Self-pipe used both for new-connection notification (acceptor -> worker)
+     * and for the stop signal (owner -> worker). A NULL pointer pushed
+     * through this pipe means "stop". */
     int m_wakeupPipe[2];
 };
 
@@ -74,7 +116,9 @@ TcpConnectionHandler_Create(TcpServerController* a_tcpCtrl)
 
     handler->m_connectionsDB = list;
     handler->m_tcpCtrl = a_tcpCtrl;
-    handler->m_state = HANDLER_STATE_STOPPED;
+    /* No worker thread exists yet, so we are alone with the struct. Still
+     * use atomic_store for consistency with later reads. */
+    atomic_store(&handler->m_state, HANDLER_STATE_STOPPED);
     FD_ZERO(&handler->m_activeFdSet);
     FD_ZERO(&handler->m_activeFdSetCopy);
     FD_SET(handler->m_wakeupPipe[PIPE_READ], &handler->m_activeFdSet);
@@ -89,6 +133,9 @@ TcpConnectionHandler_Destroy(TcpConnectionHandler** a_handler)
     {
         return;
     }
+    /* Stop joins the worker thread first. After this returns, we are
+     * single-threaded again and can safely free everything. */
+    TcpConnectionHandler_Stop(*a_handler);
     TcpConnectionHandler* handler = *a_handler;
     ListDestroy(&handler->m_connectionsDB, DestroyRecord);
     close(handler->m_wakeupPipe[PIPE_READ]);
@@ -105,19 +152,26 @@ TcpConnectionHandler_Start(TcpConnectionHandler* a_handler)
         return TCP_RESULT_NULL_PTR;
     }
 
-    if (a_handler->m_state == HANDLER_STATE_RUNNING)
+    if (atomic_load(&a_handler->m_state) == HANDLER_STATE_RUNNING)
     {
         return TCP_RESULT_SUCCESS;
     }
 
+    /* NOTE on order: we flip m_state to RUNNING AFTER pthread_create
+     * succeeds. The worker's loop predicate `m_state == RUNNING` would
+     * cause it to exit immediately if we got here in the opposite order
+     * and the worker raced ahead of the store. We accept that the worker
+     * may briefly see STOPPED on its first iteration (in which case the
+     * loop just doesn't enter and the thread exits cleanly); the
+     * common path is that the store below lands before the worker runs. */
     int result = pthread_create(&a_handler->m_thread, NULL, ClientHandlerIOLoop, a_handler);
-    if (result > 0) // Any value greater than 0 indicates a POSIX error code
+    if (result != 0)
     {
         LOG_ERROR("pthread_create failed: %s", strerror(result));
         return TCP_RESULT_THREAD_CREATION_FAILED;
     }
-    
-    a_handler->m_state = HANDLER_STATE_RUNNING;
+
+    atomic_store(&a_handler->m_state, HANDLER_STATE_RUNNING);
     return TCP_RESULT_SUCCESS;
 }
 
@@ -126,17 +180,36 @@ TcpConnectionHandler_Start(TcpConnectionHandler* a_handler)
 void
 TcpConnectionHandler_Stop(TcpConnectionHandler* a_handler)
 {
-    if (a_handler == NULL || a_handler->m_state != HANDLER_STATE_RUNNING)
+    if (a_handler == NULL)
     {
         return;
     }
-    a_handler->m_state = HANDLER_STATE_STOPPED;
+
+    /* atomic_exchange returns the OLD value. If it wasn't RUNNING then either
+     * we never started or someone else already stopped us; either way, the
+     * thread isn't joinable and we must NOT call pthread_join. */
+    if (atomic_exchange(&a_handler->m_state, HANDLER_STATE_STOPPED) != HANDLER_STATE_RUNNING)
+    {
+        return;
+    }
+
+    /* Wake the worker. It's blocked in select() waiting for pipe activity.
+     * Writing a NULL pointer is interpreted by the worker as "stop signal".
+     * The state flip above ensures that even if the worker reaches the
+     * loop condition before processing this pointer, it will exit cleanly. */
     TcpConnectionRecord* stop = NULL;
     write(a_handler->m_wakeupPipe[PIPE_WRITE], &stop, sizeof(stop));
     pthread_join(a_handler->m_thread, NULL);
     LOG_INFO("Handler thread stopped");
 }
 
+/* Called from the ACCEPTOR thread (and only the acceptor thread in this
+ * design). We must not touch the connections list, fd_set, or m_maxFd
+ * here — those are exclusively owned by the worker. Instead we hand the
+ * record off via the self-pipe, and the worker pulls it out and registers
+ * it on its own thread. POSIX guarantees that a write() of <= PIPE_BUF
+ * bytes is atomic, so even if multiple acceptors wrote concurrently
+ * (we only have one today) their pointers would not be interleaved. */
 TcpResult
 TcpConnectionHandler_AddConnection(TcpConnectionHandler* a_handler, TcpConnectionRecord* a_record)
 {
@@ -144,19 +217,24 @@ TcpConnectionHandler_AddConnection(TcpConnectionHandler* a_handler, TcpConnectio
     {
         return TCP_RESULT_NULL_PTR;
     }
-    // Write the pointer through the pipe — wakes up select() in the IO loop
     ssize_t written = write(a_handler->m_wakeupPipe[PIPE_WRITE], &a_record, sizeof(a_record));
     return CHECK_WRITE_SIZE(written, sizeof(a_record));
 }
 
+/* Worker-thread-only. Pulls a record pointer out of the self-pipe and,
+ * unless it's the NULL stop signal, registers the new fd with select().
+ * Mutating m_connectionsDB / m_activeFdSet / m_maxFd here is safe because
+ * we are the sole writer; the acceptor never touches these fields. */
 static void 
 ProcessNewConnection(TcpConnectionHandler* handler)
 {
     TcpConnectionRecord* record;
-    // Read the pointer passed through the pipe
     if (read(handler->m_wakeupPipe[PIPE_READ], &record, sizeof(record)) == sizeof(record))
     {
-        if (record == NULL) return; // stop signal
+        /* NULL pointer = Stop() told us to wake up and exit. The loop
+         * predicate (atomic_load(m_state)) will catch the state change
+         * on the next iteration; we just return here. */
+        if (record == NULL) return;
         // fd size gaurd for new connections
         if (record->m_fdConnection >= FD_SETSIZE)
         {
@@ -195,12 +273,19 @@ ProcessClientData(TcpConnectionHandler* handler, TcpConnectionRecord* record, Li
     }
 }
 
+/* Worker-thread entry point. This is the ONLY function (along with its
+ * static callees) that mutates the connection list and the fd_set after
+ * Start() returns. Everything in here runs on a single thread, so the
+ * data-structure operations are race-free by ownership, not by locking. */
 static void* 
 ClientHandlerIOLoop(void* a_handler)
 {
     TcpConnectionHandler* handler = (TcpConnectionHandler*)a_handler;
 
-    while (handler->m_state == HANDLER_STATE_RUNNING)
+    /* The atomic_load here is the cross-thread observation point for Stop().
+     * Without _Atomic the compiler could legally cache the value in a
+     * register across iterations and turn this into an infinite loop. */
+    while (atomic_load(&handler->m_state) == HANDLER_STATE_RUNNING)
     {
         int nReady = WaitForActivity(handler);
         
