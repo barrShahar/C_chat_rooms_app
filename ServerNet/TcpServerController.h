@@ -116,7 +116,6 @@ TcpResult TcpServerController_ProcessDisconnect(TcpServerController* a_controlle
  */
 TcpResult TcpServerController_ProcessMessage(TcpServerController* a_controller, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
 
-
 /**
  * @brief Get the controller's listening port
  *
