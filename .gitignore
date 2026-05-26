@@ -1,0 +1,23 @@
+# Build outputs
+*.o
+*.a
+*.so
+*.out
+*.elf
+*.bin
+*.hex
+*.map
+*.d
+
+# Executables 
+out.*
+
+# Editor & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+
