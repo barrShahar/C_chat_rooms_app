@@ -43,7 +43,13 @@ test: $(TEST_BIN)
 $(TEST_BIN): $(TEST_SRCS)
 	$(CC) $(FLAGS) -o $@ $^
 
+run: all
+	@bash run_test.sh
+
+valgrind: all
+	valgrind --leak-check=full --track-origins=yes --fair-sched=yes ./build/out.test_app
+
 clean:
 	rm -rf build
 
-.PHONY: all clean test
+.PHONY: all clean test run valgrind

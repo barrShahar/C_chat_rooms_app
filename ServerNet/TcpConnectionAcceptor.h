@@ -7,3 +7,4 @@ TcpConnectionAcceptor* TcpConnectionAcceptor_Create(TcpServerController* a_tcpCt
 void TcpConnectionAcceptor_Destroy(TcpConnectionAcceptor** a_acceptor);
 
 TcpResult TcpConnectionAcceptor_Start(TcpConnectionAcceptor* a_acceptor);
+void TcpConnectionAcceptor_Stop(TcpConnectionAcceptor* a_acceptor);

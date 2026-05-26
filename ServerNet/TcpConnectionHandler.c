@@ -121,7 +121,21 @@ TcpConnectionHandler_Start(TcpConnectionHandler* a_handler)
 
 
 
-TcpResult 
+void
+TcpConnectionHandler_Stop(TcpConnectionHandler* a_handler)
+{
+    if (a_handler == NULL || a_handler->m_state != HANDLER_STATE_RUNNING)
+    {
+        return;
+    }
+    a_handler->m_state = HANDLER_STATE_STOPPED;
+    TcpConnectionRecord* stop = NULL;
+    write(a_handler->m_wakeupPipe[PIPE_WRITE], &stop, sizeof(stop));
+    pthread_join(a_handler->m_thread, NULL);
+    LOG_INFO("Handler thread stopped");
+}
+
+TcpResult
 TcpConnectionHandler_AddConnection(TcpConnectionHandler* a_handler, TcpConnectionRecord* a_record)
 {
     if (a_handler == NULL || a_record == NULL) 
@@ -132,12 +146,13 @@ TcpConnectionHandler_AddConnection(TcpConnectionHandler* a_handler, TcpConnectio
     ssize_t written = write(a_handler->m_wakeupPipe[PIPE_WRITE], &a_record, sizeof(a_record));
     return CHECK_WRITE_SIZE(written, sizeof(a_record));
 }
-static void ProcessNewConnection(TcpConnectionHandler* handler) 
+static void ProcessNewConnection(TcpConnectionHandler* handler)
 {
     TcpConnectionRecord* record;
     // Read the pointer passed through the pipe
     if (read(handler->m_wakeupPipe[PIPE_READ], &record, sizeof(record)) == sizeof(record))
     {
+        if (record == NULL) return; // stop signal
         ListPushTail(handler->m_connectionsDB, record);
         FD_SET(record->m_fdConnection, &handler->m_activeFdSet);
         UPDATE_MAX_FD(handler->m_maxFd, record->m_fdConnection);

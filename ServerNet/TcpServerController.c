@@ -1,11 +1,11 @@
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include "TcpServerController.h"
 #include "TcpConnectionAcceptor.h"
 #include "network_utils.h"
 #include "TcpConnectionHandler.h"
 #include "TcpConnectionRecord.h"
+#include "logger.h"
 
 static char* CopyString(const char* a_string);
 
@@ -57,7 +57,7 @@ TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t 
         return NULL;
     }
 
-    printf("Tcp server controller connected\n");
+    LOG_INFO("server '%s' created on %s:%d", a_name, a_ip, a_port);
     return controller;
 }
 
@@ -69,7 +69,7 @@ TcpServerController_Display(TcpServerController* a_ctrl)
         return TCP_RESULT_NULL_PTR;
     }
 
-    printf("TODO: Display the server controller\n");
+    LOG_DEBUG("Display: name=%s ip=%u port=%d state=%d", a_ctrl->m_name, a_ctrl->m_ip, a_ctrl->m_port, a_ctrl->m_state);
     return TCP_RESULT_SUCCESS;
 }
 
@@ -106,7 +106,7 @@ TcpResult TcpServerController_Start(TcpServerController* a_ctrl)
 
     if (a_ctrl->m_state == SERVER_STATE_RUNNING)
     {
-        printf("Warning: Server is already running.\n");
+        LOG_WARN("server '%s' is already running", a_ctrl->m_name);
         return TCP_RESULT_SUCCESS; // Or return a specific error like TCP_RESULT_ALREADY_RUNNING
     }
 
@@ -120,7 +120,17 @@ TcpResult TcpServerController_Start(TcpServerController* a_ctrl)
     return TCP_RESULT_SUCCESS;
 }
 
-TcpResult 
+void
+TcpServerController_Stop(TcpServerController* a_ctrl)
+{
+    if (a_ctrl == NULL) return;
+    TcpConnectionAcceptor_Stop(a_ctrl->m_connectionAcceptor);
+    TcpConnectionHandler_Stop(a_ctrl->m_connectionHandler);
+    a_ctrl->m_state = SERVER_STATE_STOPPED;
+    LOG_INFO("server '%s' stopped", a_ctrl->m_name);
+}
+
+TcpResult
 TcpServerController_ProcessConnection(TcpServerController* a_controller, TcpConnectionRecord* a_record)
 {
 
@@ -132,7 +142,7 @@ TcpServerController_ProcessConnection(TcpServerController* a_controller, TcpConn
         // Delete record
     }
 
-    printf("DEBUG:Controller_ProcessConnection: %s\n", a_record->m_ip);
+    LOG_DEBUG("new connection from %s:%d (fd=%d)", a_record->m_ip, a_record->m_port, a_record->m_fdConnection);
     if (a_controller->m_callbackNewConnection)
     {
         a_controller->m_callbackNewConnection(a_record);

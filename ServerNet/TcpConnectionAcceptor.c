@@ -92,12 +92,26 @@ TcpConnectionAcceptor* TcpConnectionAcceptor_Create(TcpServerController* a_tcpCt
     return acceptor;
 }
 
+void TcpConnectionAcceptor_Stop(TcpConnectionAcceptor* a_acceptor)
+{
+    if (a_acceptor == NULL || a_acceptor->m_state != ACCEPTOR_STATE_RUNNING)
+    {
+        return;
+    }
+    a_acceptor->m_state = ACCEPTOR_STATE_STOPPED;
+    shutdown(a_acceptor->m_listenFd, SHUT_RDWR); // wake up blocked accept()
+    close(a_acceptor->m_listenFd);
+    pthread_join(a_acceptor->m_thread, NULL);
+    LOG_INFO("Acceptor thread stopped");
+}
+
 void TcpConnectionAcceptor_Destroy(TcpConnectionAcceptor** a_acceptor)
 {
     if (a_acceptor == NULL || *a_acceptor == NULL)
     {
         return;
     }
+    TcpConnectionAcceptor_Stop(*a_acceptor);
     free(*a_acceptor);
     *a_acceptor = NULL;
 }
@@ -116,9 +130,11 @@ TcpResult TcpConnectionAcceptor_Start(TcpConnectionAcceptor* a_acceptor)
         return TCP_RESULT_SUCCESS;
     }
 
+    a_acceptor->m_state = ACCEPTOR_STATE_RUNNING;
     int err = pthread_create(&a_acceptor->m_thread, NULL, TcpConnectionAcceptor_AcceptLoop, a_acceptor);
     if (err != 0)
     {
+        a_acceptor->m_state = ACCEPTOR_STATE_STOPPED;
         return TCP_RESULT_THREAD_CREATION_FAILED;
     }
 
@@ -132,14 +148,15 @@ static void* TcpConnectionAcceptor_AcceptLoop(void* a_acceptor)
     socklen_t addr_len = sizeof(client_addr);
 
     LOG_INFO("Acceptor thread is on listen");
-    while (1)
+    while (acceptor->m_state == ACCEPTOR_STATE_RUNNING)
     {
-        int fdConnectionToClient = accept(acceptor->m_listenFd, 
-            (struct sockaddr *)&client_addr, 
+        int fdConnectionToClient = accept(acceptor->m_listenFd,
+            (struct sockaddr *)&client_addr,
             &addr_len);
 
         if (fdConnectionToClient < 0)
         {
+            if (acceptor->m_state == ACCEPTOR_STATE_STOPPED) break;
             LOG_ERROR("TcpConnectionAcceptor_AcceptLoop: accept failed: %s", strerror(errno));
             continue;
         }

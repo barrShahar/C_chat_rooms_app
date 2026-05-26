@@ -6,7 +6,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <errno.h>
 #include <unistd.h>
+#include "logger.h"
 
 #define NUMBER_OF_CLIENTS 20
 #define DEFAULT_HOST "127.0.0.1"
@@ -50,7 +52,7 @@ int main(void)
                 }
             }
         }
-        printf("loop num: %ld\n", loopNum++);
+        LOG_INFO("loop num: %ld", loopNum++);
         sleep(1);
     }
 
@@ -71,18 +73,18 @@ static int ClientConnect(int i)
     addr.sin_port = htons((uint16_t)DEFAULT_PORT);
 
     if (inet_pton(AF_INET, DEFAULT_HOST, &addr.sin_addr) <= 0) {
-        fprintf(stderr, "Invalid address: %s\n", DEFAULT_HOST);
+        LOG_ERROR("Invalid address: %s", DEFAULT_HOST);
         close(fd);
         return 0;
     }
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        perror("connect");
+        LOG_ERROR("connect failed: %s", strerror(errno));
         close(fd);
         return 0;
     }
 
-    printf("Connected client: %d\n", i);
+    LOG_INFO("Connected client: %d", i);
     return fd;
 }
 
@@ -97,7 +99,7 @@ static int ClientSayHello(int fd, int clientNumber)
         Die("send");
     }
 
-    printf("Sent: %s", message);
+    LOG_DEBUG("Sent: %s", message);
 
     // char buf[BUF_SIZE];
     // ssize_t n = recv(fd, buf, sizeof(buf) - 1, 0);
@@ -123,7 +125,7 @@ static int ClientDisconnect(int fd, int clientNumber)
     }
 
     close(fd);
-    printf("Disconnected client %d", clientNumber);
+    LOG_INFO("Disconnected client %d", clientNumber);
     return 0;
 }
 

@@ -5,7 +5,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <string.h>
-
+#include <errno.h>
+#include "../../utils/logger.h"
 #define DEFAULT_SERVER_IP "127.0.0.1"
 #define DEFAULT_SERVER_PORT 8080
 
@@ -23,7 +24,7 @@ int main(int argc, char **argv)
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0)
     {
-        printf("Error: socket creation failed\n");
+        LOG_ERROR("socket creation failed: %s", strerror(errno));
         return 1;
     }
 
@@ -34,16 +35,16 @@ int main(int argc, char **argv)
 
     if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
-        printf("Error: connection failed\n");
+        LOG_ERROR("connection failed: %s", strerror(errno));
         return 1;
     }
 
-    printf("Client: Connected to server\n");
+    LOG_INFO("Client: Connected to server");
 
     char buf[256];
     while (1)
     {
-        printf("Enter message (or 'quit' to exit): ");
+        LOG_INFO("Enter message (or 'quit' to exit): ");
         if (fgets(buf, sizeof(buf), stdin) == NULL)
             break;
 
@@ -52,7 +53,7 @@ int main(int argc, char **argv)
 
         if (send(sockfd, buf, strlen(buf), 0) < 0)
         {
-            printf("Error: send failed\n");
+            LOG_ERROR("send failed: %s", strerror(errno));
             break;
         }
     }
