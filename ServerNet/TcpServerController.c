@@ -99,6 +99,13 @@ TcpServerController_Destroy(TcpServerController** a_ctrl)
     }
     TcpServerController* controller = *a_ctrl;  // Alias
 
+    // Ensure the server is stopped before freeing memory 
+    // This stops threads, closes listener sockets, etc.
+    if (controller->m_state == SERVER_STATE_RUNNING)
+    {
+        TcpServerController_Stop(controller); 
+    }
+
     // These functions safely handle pointers to NULL
     TcpConnectionAcceptor_Destroy(&controller->m_connectionAcceptor);
     TcpConnectionHandler_Destroy(&controller->m_connectionHandler);
@@ -108,14 +115,9 @@ TcpServerController_Destroy(TcpServerController** a_ctrl)
     *a_ctrl = NULL;
 }
 
-TcpResult TcpServerController_Start(TcpServerController* a_ctrl)
+TcpResult 
+TcpServerController_Start(TcpServerController* a_ctrl)
 {
-    
-    /*
-    Start the CRS thread for the connection acceptor
-    Start the DRS thread for the connection service manager
-    */
-
     if (a_ctrl == NULL)
     {
         return TCP_RESULT_NULL_PTR;

@@ -36,3 +36,24 @@ uint32_t network_convert_ip_p_to_n(const char *a_ip_addr)
     return binary_prefix;
 }
 
+bool is_valid_ip_address(const char* ip_str) 
+{
+    if (ip_str == NULL) return false;
+
+    // Try parsing as IPv4
+    struct sockaddr_in sa_ipv4;
+    if (inet_pton(AF_INET, ip_str, &(sa_ipv4.sin_addr)) == 1) 
+    {
+        return true;
+    }
+
+    // Try parsing as IPv6
+    struct sockaddr_in6 sa_ipv6;
+    if (inet_pton(AF_INET6, ip_str, &(sa_ipv6.sin6_addr)) == 1) 
+    {
+        return true;
+    }
+
+    // If both fail, it's not a valid IP string
+    return false;
+}
