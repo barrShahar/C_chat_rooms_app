@@ -24,7 +24,10 @@ typedef enum TcpResult
 } TcpResult;
 
 /**
-
+ * @brief Convert a TcpResult to a string representation
+ * 
+ * @param a_result Instance of tcpResult
+ * @return const char* 
  */
 const char* TcpResult_ToString(TcpResult a_result);
 
@@ -113,13 +116,6 @@ TcpResult TcpServerController_ProcessDisconnect(TcpServerController* a_controlle
  */
 TcpResult TcpServerController_ProcessMessage(TcpServerController* a_controller, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
 
-/**
- * @brief Display a human-readable summary of the controller
- *
- * @params a_ctrl : A previously created TcpServerController
- * @return TCP_RESULT_SUCCESS on success or an error code on failure
- */
-TcpResult TcpServerController_Display(TcpServerController* a_ctrl);
 
 /**
  * @brief Get the controller's listening port

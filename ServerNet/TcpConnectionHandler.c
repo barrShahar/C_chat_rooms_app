@@ -149,7 +149,8 @@ TcpConnectionHandler_AddConnection(TcpConnectionHandler* a_handler, TcpConnectio
     return CHECK_WRITE_SIZE(written, sizeof(a_record));
 }
 
-static void ProcessNewConnection(TcpConnectionHandler* handler)
+static void 
+ProcessNewConnection(TcpConnectionHandler* handler)
 {
     TcpConnectionRecord* record;
     // Read the pointer passed through the pipe

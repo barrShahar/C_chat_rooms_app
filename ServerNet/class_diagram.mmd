@@ -1,0 +1,87 @@
+classDiagram
+    direction TB
+
+    class TcpConnectionRecord {
+        +int m_fdConnection
+        +char m_ip[16]
+        +int m_port
+        +Create(fdConnection, ip, port)$ TcpConnectionRecord*
+        +Display()
+        +Destroy()
+    }
+
+    class TcpServerController {
+        -char* m_name
+        -uint32_t m_ip
+        -uint16_t m_port
+        -ServerState m_state
+        -cb_onNewConnection~TcpConnectionRecord*~
+        -cb_onDisconnect~TcpConnectionRecord*~
+        -cb_onMessageReceived~TcpConnectionRecord*, char*, size_t~
+        +Create(name, ip, port)$ TcpServerController*
+        +Destroy()
+        +Start() TcpResult
+        +Stop()
+        +SetCallbacks(onNew, onDisconnect, onMessage) TcpResult
+        +ProcessConnection(record) TcpResult
+        +ProcessDisconnect(record) TcpResult
+        +ProcessMessage(record, msg, len) TcpResult
+        +GetPort() uint16_t
+        +GetIp() uint32_t
+        +Display() TcpResult
+    }
+
+    class TcpConnectionAcceptor {
+        -TcpServerController* m_tcpCtrl
+        -pthread_t m_thread
+        -int m_listenFd
+        -AcceptorState m_state
+        +Create(ctrl)$ TcpConnectionAcceptor*
+        +Destroy()
+        +Start() TcpResult
+        +Stop()
+        -AcceptLoop()
+    }
+
+    class TcpConnectionHandler {
+        -TcpServerController* m_tcpCtrl
+        -pthread_t m_thread
+        -HandlerState m_state
+        -List* m_connectionsDB
+        -int m_maxFd
+        -fd_set m_activeFdSet
+        -size_t m_numberOfClients
+        -int m_wakeupPipe[2]
+        +Create(ctrl)$ TcpConnectionHandler*
+        +Destroy()
+        +Start() TcpResult
+        +Stop()
+        +AddConnection(record) TcpResult
+        -ClientHandlerIOLoop()
+    }
+
+    class TcpResult {
+        <<enumeration>>
+        SUCCESS
+        NULL_PTR
+        INVALID_ARGUMENT
+        ALLOCATION_FAILED
+        SOCKET_ERROR
+        BIND_ERROR
+        LISTEN_ERROR
+        ACCEPT_ERROR
+        CONNECTION_CLOSED
+        THREAD_CREATION_FAILED
+        +ToString(result)$ const char*
+    }
+
+    TcpServerController "1" *-- "1" TcpConnectionAcceptor : owns
+    TcpServerController "1" *-- "1" TcpConnectionHandler : owns
+    TcpConnectionAcceptor "1" --> "1" TcpServerController : back-ref
+    TcpConnectionHandler "1" --> "1" TcpServerController : back-ref
+    TcpConnectionHandler "1" o-- "*" TcpConnectionRecord : manages list
+    TcpConnectionAcceptor ..> TcpConnectionRecord : creates
+    TcpServerController ..> TcpConnectionRecord : uses in callbacks
+    TcpConnectionAcceptor ..> TcpResult : returns
+    TcpConnectionHandler ..> TcpResult : returns
+    TcpServerController ..> TcpResult : returns

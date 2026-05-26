@@ -100,8 +100,9 @@ void TcpConnectionAcceptor_Stop(TcpConnectionAcceptor* a_acceptor)
     }
     a_acceptor->m_state = ACCEPTOR_STATE_STOPPED;
     shutdown(a_acceptor->m_listenFd, SHUT_RDWR); // wake up blocked accept()
-    close(a_acceptor->m_listenFd);
     pthread_join(a_acceptor->m_thread, NULL);
+    close(a_acceptor->m_listenFd);
+    
     LOG_INFO("Acceptor thread stopped");
 }
 

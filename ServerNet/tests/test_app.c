@@ -24,8 +24,6 @@ int main(void)
     // wait for user to press enter
     getchar();
 
-    TcpServerController_Display(tcp_server);
-
     TcpServerController_Stop(tcp_server);
 
     TcpServerController_Destroy(&tcp_server);

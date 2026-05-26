@@ -50,6 +50,17 @@ struct TcpServerController
 TcpServerController* 
 TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t a_port)
 {
+    if (a_name == NULL || a_ip == NULL)
+    {
+        LOG_ERROR("Invalid arguments: name or IP is NULL");
+        return NULL;
+    }
+    if (!is_valid_ip_address(a_ip))
+    {
+        LOG_ERROR("Invalid IP address string format provided: %s", a_ip);
+        return NULL;
+    }
+
     TcpServerController* controller = (TcpServerController*)malloc(sizeof(TcpServerController));
     if (controller == NULL)
     {
@@ -58,10 +69,11 @@ TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t 
     controller->m_name = CopyString(a_name);
     if (controller->m_name == NULL)
     {
+        LOG_ERROR("Allocation error while copying server name");
         free(controller);
         return NULL;
     }
-    controller->m_ip = network_convert_ip_p_to_n(a_ip);
+    controller->m_ip = ntohl(network_convert_ip_p_to_n(a_ip));
     controller->m_port = a_port;
     controller->m_state = SERVER_STATE_STOPPED;
 
@@ -70,24 +82,12 @@ TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t 
 
     if (controller->m_connectionAcceptor == NULL || controller->m_connectionHandler == NULL)
     {
-        TcpServerController_Destroy(&controller);
+        TcpServerController_Destroy(&controller);   // Destroy function can handle NULL
         return NULL;
     }
 
     LOG_INFO("server '%s' created on %s:%d", a_name, a_ip, a_port);
     return controller;
-}
-
-TcpResult 
-TcpServerController_Display(TcpServerController* a_ctrl)
-{
-    if (a_ctrl == NULL)
-    {
-        return TCP_RESULT_NULL_PTR;
-    }
-
-    LOG_DEBUG("Display: name=%s ip=%u port=%d state=%d", a_ctrl->m_name, a_ctrl->m_ip, a_ctrl->m_port, a_ctrl->m_state);
-    return TCP_RESULT_SUCCESS;
 }
 
 void 
