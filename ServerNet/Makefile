@@ -1,12 +1,11 @@
 CC = gcc
-FLAGS = -g -Wall -Wextra -std=c99 -I. -I../db
+FLAGS = -g -Wall -Wextra -std=c99 -I. -I../db -I../utils
 LDFLAGS = -L../db -lDataStructures
 
 SRCS = TcpServerController.c \
 TcpConnectionAcceptor.c \
 TcpConnectionHandler.c \
-TcpConnectionRecord.c \
-network_utils.c
+TcpConnectionRecord.c
 
 $(shell mkdir -p build)
 
@@ -15,13 +14,13 @@ TARGET = build/out.test_app
 TCP_CLIENT_TARGET = build/out.tcp_client
 TCP_CLIENT_MULTI_TARGET = build/out.multi_client
 
-TEST_DIR = tests
-TEST_SRCS = $(TEST_DIR)/test_network_utils.c network_utils.c
+TEST_DIR = unittests
+TEST_SRCS = $(TEST_DIR)/test_network_utils.c ../utils/network_utils.c
 TEST_BIN  = build/test_network_utils
 
 all: $(TARGET) $(TCP_CLIENT_TARGET) $(TCP_CLIENT_MULTI_TARGET)
 
-$(TARGET): $(OBJS) build/test_app.o
+$(TARGET): $(OBJS) build/test_app.o build/network_utils.o
 	$(CC) $(FLAGS) -o $@ $^ $(LDFLAGS)
 
 $(TCP_CLIENT_TARGET): tests/tcp_client.c
@@ -34,6 +33,9 @@ build/%.o: %.c
 	$(CC) $(FLAGS) -c -o $@ $<
 
 build/%.o: tests/%.c
+	$(CC) $(FLAGS) -c -o $@ $<
+
+build/%.o: ../utils/%.c
 	$(CC) $(FLAGS) -c -o $@ $<
 
 test: $(TEST_BIN)

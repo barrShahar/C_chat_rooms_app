@@ -5,9 +5,11 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <pthread.h>
+#include <string.h>
 #include "TcpConnectionHandler.h"
 #include "TcpServerController.h"
 #include "../db/gen_dlist.h"
+#include "logger.h"
 
 #define RECV_BUF_SIZE 4096
 
@@ -55,12 +57,14 @@ TcpConnectionHandler_Create(TcpServerController* a_tcpCtrl)
     List* list = ListCreate();
     if (handler == NULL || list == NULL)
     {
+        LOG_ERROR("allocation failed: %s", strerror(errno));
         ListDestroy(&list, NULL);
         free(handler);
         return NULL;
     }
     if (pipe(handler->m_wakeupPipe) < 0)
     {
+        LOG_ERROR("pipe creation failed: %s", strerror(errno));
         ListDestroy(&list, NULL);
         free(handler);
         return NULL;
@@ -107,6 +111,7 @@ TcpConnectionHandler_Start(TcpConnectionHandler* a_handler)
     int result = pthread_create(&a_handler->m_thread, NULL, ClientHandlerIOLoop, a_handler);
     if (result > 0) // Any value greater than 0 indicates a POSIX error code
     {
+        LOG_ERROR("pthread_create failed: %s", strerror(result));
         return TCP_RESULT_THREAD_CREATION_FAILED;
     }
     
@@ -131,12 +136,12 @@ static void ProcessNewConnection(TcpConnectionHandler* handler)
 {
     TcpConnectionRecord* record;
     // Read the pointer passed through the pipe
-    if (read(handler->m_wakeupPipe[PIPE_READ], &record, sizeof(record)) == sizeof(record)) 
+    if (read(handler->m_wakeupPipe[PIPE_READ], &record, sizeof(record)) == sizeof(record))
     {
         ListPushTail(handler->m_connectionsDB, record);
         FD_SET(record->m_fdConnection, &handler->m_activeFdSet);
-        
         UPDATE_MAX_FD(handler->m_maxFd, record->m_fdConnection);
+        LOG_DEBUG("connection fd=%d registered, maxFd=%d", record->m_fdConnection, handler->m_maxFd);
     }
 }
 
@@ -146,11 +151,14 @@ ProcessClientData(TcpConnectionHandler* handler, TcpConnectionRecord* record, Li
     char buf[RECV_BUF_SIZE];
     ssize_t n = recv(record->m_fdConnection, buf, sizeof(buf), 0);
 
-    if (n <= 0) 
+    if (n <= 0)
     {
-        // Client disconnected or error occurred
+        if (n == 0) {
+            LOG_INFO("client fd=%d disconnected", record->m_fdConnection);
+        } else {
+            LOG_ERROR("recv error on fd=%d: %s", record->m_fdConnection, strerror(errno));
+        }
         FD_CLR(record->m_fdConnection, &handler->m_activeFdSet);
-  
         ListItrRemove(currentItr);
         TcpServerController_ProcessDisconnect(handler->m_tcpCtrl, record);
     } 
@@ -200,10 +208,10 @@ WaitForActivity(TcpConnectionHandler* handler)
     handler->m_activeFdSetCopy = handler->m_activeFdSet;    
     int nReady = select(handler->m_maxFd + 1, &handler->m_activeFdSetCopy, NULL, NULL, 0);
 
-    if (nReady < 0 && errno != EINTR) 
+    if (nReady < 0 && errno != EINTR)
     {
-        perror("ClientHandlerIOLoop: select");
-        return -1; // Fatal error
+        LOG_ERROR("select failed: %s", strerror(errno));
+        return -1;
     }
     
     // If nReady < 0 here, it was EINTR (interrupted), so we treat it as 0 to retry.

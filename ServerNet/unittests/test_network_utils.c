@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include <string.h>
-#include "../network_utils.h"
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include "../../utils/network_utils.h"
 
 static int total_checks  = 0;
 static int passed_checks = 0;

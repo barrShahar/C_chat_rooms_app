@@ -10,6 +10,7 @@
 #include "TcpConnectionAcceptor.h"
 #include "TcpServerController.h"
 #include "network_utils.h"
+#include "logger.h"
 #include "TcpConnectionRecord.h"
 
 typedef enum {
@@ -130,7 +131,7 @@ static void* TcpConnectionAcceptor_AcceptLoop(void* a_acceptor)
     struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
 
-    printf("Acceptor thread is on listen\n");
+    LOG_INFO("Acceptor thread is on listen");
     while (1)
     {
         int fdConnectionToClient = accept(acceptor->m_listenFd, 
@@ -139,7 +140,7 @@ static void* TcpConnectionAcceptor_AcceptLoop(void* a_acceptor)
 
         if (fdConnectionToClient < 0)
         {
-            fprintf(stderr, "TcpConnectionAcceptor_AcceptLoop: accept failed: %s\n", strerror(errno));
+            LOG_ERROR("TcpConnectionAcceptor_AcceptLoop: accept failed: %s", strerror(errno));
             continue;
         }
 
@@ -150,7 +151,7 @@ static void* TcpConnectionAcceptor_AcceptLoop(void* a_acceptor)
         TcpConnectionRecord* record = malloc(sizeof(TcpConnectionRecord));
         if (record == NULL)
         {
-            fprintf(stderr, "TcpConnectionAcceptor_AcceptLoop: allocation of TCP record failed: %s\n", strerror(errno));
+            LOG_ERROR("TcpConnectionAcceptor_AcceptLoop: allocation of TCP record failed: %s", strerror(errno));
             continue;
         }
 
@@ -159,7 +160,8 @@ static void* TcpConnectionAcceptor_AcceptLoop(void* a_acceptor)
         record->m_port = ntohs(client_addr.sin_port);
         
         TcpServerController_ProcessConnection(acceptor->m_tcpCtrl, record);
-        printf("TcpConnectionAcceptor_AcceptLoop: new client connected: %d [%s:%d]\n", 
+
+        LOG_INFO("TcpConnectionAcceptor_AcceptLoop: new client connected: %d [%s:%d]", 
             fdConnectionToClient, 
             ipBuffer,
             ntohs(client_addr.sin_port));

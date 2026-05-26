@@ -1,6 +1,7 @@
-#include "TcpServerController.h"
-#include "TcpConnectionRecord.h"
 #include <stdio.h>
+#include "../TcpServerController.h"
+#include "../TcpConnectionRecord.h"
+#include "../../utils/logger.h"
 
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 8080
@@ -13,7 +14,7 @@ static void CallbackMessageReceived(const TcpConnectionRecord* a_record, const c
 
 int main(void)
 {
-
+    LOG_INFO("Starting test application");
     TcpServerController *tcp_server = TcpServerController_Create
     ("test_server", SERVER_IP, SERVER_PORT);
 
