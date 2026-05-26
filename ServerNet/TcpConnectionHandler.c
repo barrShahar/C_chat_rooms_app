@@ -10,8 +10,9 @@
 #include "TcpServerController.h"
 #include "../db/gen_dlist.h"
 #include "logger.h"
+#include "config.h"
 
-#define RECV_BUF_SIZE 4096
+
 
 typedef enum {
     HANDLER_STATE_STOPPED,
@@ -29,6 +30,7 @@ struct TcpConnectionHandler
     int m_maxFd;
     fd_set m_activeFdSet;
     fd_set m_activeFdSetCopy;
+    size_t m_numberOfClients;
 
     // Self-pipe: write a TcpConnectionRecord* through [1] to wake up select() on [0]
     int m_wakeupPipe[2];
@@ -146,6 +148,7 @@ TcpConnectionHandler_AddConnection(TcpConnectionHandler* a_handler, TcpConnectio
     ssize_t written = write(a_handler->m_wakeupPipe[PIPE_WRITE], &a_record, sizeof(a_record));
     return CHECK_WRITE_SIZE(written, sizeof(a_record));
 }
+
 static void ProcessNewConnection(TcpConnectionHandler* handler)
 {
     TcpConnectionRecord* record;
@@ -153,6 +156,13 @@ static void ProcessNewConnection(TcpConnectionHandler* handler)
     if (read(handler->m_wakeupPipe[PIPE_READ], &record, sizeof(record)) == sizeof(record))
     {
         if (record == NULL) return; // stop signal
+        // fd size gaurd for new connections
+        if (record->m_fdConnection >= FD_SETSIZE)
+        {
+            LOG_ERROR("invalid fd=%d for new connection", record->m_fdConnection);
+            TcpServerController_ProcessDisconnect(handler->m_tcpCtrl, record);
+            return;
+        }
         ListPushTail(handler->m_connectionsDB, record);
         FD_SET(record->m_fdConnection, &handler->m_activeFdSet);
         UPDATE_MAX_FD(handler->m_maxFd, record->m_fdConnection);

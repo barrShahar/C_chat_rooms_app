@@ -1,5 +1,5 @@
 CC = gcc
-FLAGS = -g -Wall -Wextra -std=c99 -I. -I../db -I../utils
+FLAGS = -g -Wall -Wextra -std=c99 -I. -I../db -I../utils -I../
 LDFLAGS = -L../db -lDataStructures
 
 SRCS = TcpServerController.c \
