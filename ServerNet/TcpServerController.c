@@ -22,11 +22,13 @@
  *      callers must NOT call them concurrently from multiple threads
  *      (the contract documented in the header).
  *
- *   2. Acceptor thread: calls ProcessConnection, which forwards to the
- *      handler and then invokes m_callbackNewConnection (if set).
+ *   2. Acceptor thread: calls ProcessConnection, which only hands the record
+ *      to the handler via the self-pipe. It does NOT invoke any callback.
  *
- *   3. Handler worker thread: calls ProcessMessage and ProcessDisconnect,
- *      which invoke the corresponding callbacks.
+ *   3. Handler worker thread: calls NotifyNewConnection (after registering
+ *      the record), ProcessMessage, and ProcessDisconnect, which invoke the
+ *      corresponding callbacks. All three callbacks thus run on this one
+ *      thread, so the record's lifetime never crosses a thread boundary.
  *
  * Shared mutable state:
  *   - m_state: _Atomic ServerState. Tracks RUNNING/STOPPED. Read by all
@@ -134,6 +136,11 @@ TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t 
     }
     controller->m_ip = network_convert_ip_p_to_n(a_ip);
     controller->m_port = a_port;
+    /* malloc does not zero: initialize callbacks so the hot-path NULL checks
+     * are well-defined even if the caller never calls SetCallbacks. */
+    controller->m_callbackNewConnection = NULL;
+    controller->m_callbackDisconnect = NULL;
+    controller->m_callbackMessageReceived = NULL;
     /* Initialize state BEFORE the mutex so that if mutex init fails we have
      * not yet committed to any threading-related resource we'd need to
      * tear down. Atomic store on a single-threaded controller is trivially
@@ -281,11 +288,14 @@ TcpServerController_Stop(TcpServerController* a_ctrl)
     pthread_mutex_unlock(&a_ctrl->m_lock);
 }
 
-/* Called on the ACCEPTOR thread (hot path). Deliberately lock-free:
- *   - m_connectionHandler is immutable after Create.
- *   - m_callbackNewConnection is immutable while the server is RUNNING
- *     (SetCallbacks is rejected when running), so reading it here without
- *     a lock is safe. */
+/* Called on the ACCEPTOR thread. Its ONLY job is to hand the record off to
+ * the handler via the self-pipe. It must NOT touch a_record after a
+ * successful AddConnection: the moment the pointer is in the pipe the record
+ * is owned by the handler thread, which may register, service, and free it
+ * concurrently — so dereferencing it here (even merely to log it or to fire
+ * the new-connection callback) is a use-after-free. The new-connection
+ * callback therefore fires on the handler thread instead, from
+ * ProcessNewConnection -> TcpServerController_NotifyNewConnection. */
 TcpResult
 TcpServerController_ProcessConnection(TcpServerController* a_controller,
     TcpConnectionRecord* a_record)
@@ -295,7 +305,6 @@ TcpServerController_ProcessConnection(TcpServerController* a_controller,
         return TCP_RESULT_NULL_PTR;
     }
 
-    /* 1. Hand the record to the handler. On success, ownership transfers. */
     TcpResult resultHandlerDb =
         TcpConnectionHandler_AddConnection(a_controller->m_connectionHandler, a_record);
 
@@ -305,16 +314,32 @@ TcpServerController_ProcessConnection(TcpServerController* a_controller,
         return resultHandlerDb; // The acceptor must destroy the record
     }
 
+    return TCP_RESULT_SUCCESS;
+}
+
+/* Called on the HANDLER worker thread, after the handler has registered the
+ * record and while it still owns it (so the record is guaranteed alive).
+ * Firing the new-connection callback here — rather than on the acceptor
+ * thread — keeps the record's whole lifetime on one thread and delivers all
+ * three callbacks (new / message / disconnect) in order from that same
+ * thread. Lock-free for the same reason as the other Process* functions:
+ * the callback pointer is frozen while the server is RUNNING. */
+void
+TcpServerController_NotifyNewConnection(TcpServerController* a_controller,
+    const TcpConnectionRecord* a_record)
+{
+    if (a_controller == NULL || a_record == NULL)
+    {
+        return;
+    }
+
     LOG_DEBUG("new connection from %s:%d (fd=%d)",
         a_record->m_ip, a_record->m_port, a_record->m_fdConnection);
 
-    /* 2. Notify the application. The callback runs on THIS thread (the
-     * acceptor thread), not on the original Start() caller's thread. */
     if (a_controller->m_callbackNewConnection)
     {
         a_controller->m_callbackNewConnection(a_record);
     }
-    return TCP_RESULT_SUCCESS;
 }
 
 /* Called on the HANDLER worker thread (hot path). Lock-free for the same

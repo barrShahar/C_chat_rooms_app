@@ -113,6 +113,20 @@ TcpResult TcpServerController_ProcessConnection(TcpServerController* a_controlle
     TcpConnectionRecord* a_record);
 
 /**
+ * @brief Fire the new-connection callback for a registered connection
+ * @details Invoked by the connection handler on its worker thread once the
+ *          record has been registered, so the new-connection callback runs on
+ *          the same thread as the message/disconnect callbacks and the record
+ *          is guaranteed to be alive. Must not be called from the acceptor
+ *          thread (the record may already be owned/freed by the handler).
+ *
+ * @params a_controller : A previously created TcpServerController
+ * @params a_record     : Connection record of the newly registered client
+ */
+void TcpServerController_NotifyNewConnection(TcpServerController* a_controller,
+    const TcpConnectionRecord* a_record);
+
+/**
  * @brief Process a client disconnection
  *
  * @params a_controller : A previously created TcpServerController

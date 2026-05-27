@@ -1,5 +1,5 @@
 CC = gcc
-FLAGS = -g -Wall -Wextra -std=c11 -I. -I../db -I../utils -I../
+FLAGS = -g -Wall -Wextra -std=c11 -D_DEFAULT_SOURCE -I. -I/db -I../utils -I../
 LDFLAGS = -L../db -lDataStructures
 
 SRCS = TcpServerController.c \
@@ -7,18 +7,19 @@ TcpConnectionAcceptor.c \
 TcpConnectionHandler.c \
 TcpConnectionRecord.c
 
-$(shell mkdir -p build)
+$(shell mkdir -p build lib)
 
 OBJS = $(patsubst %.c, build/%.o, $(SRCS))
 TARGET = build/out.test_app
 TCP_CLIENT_TARGET = build/out.tcp_client
 TCP_CLIENT_MULTI_TARGET = build/out.multi_client
+LIB_TARGET = lib/libtcpserver.a
 
 TEST_DIR = unittests
 TEST_SRCS = $(TEST_DIR)/test_network_utils.c ../utils/network_utils.c
 TEST_BIN  = build/test_network_utils
 
-all: $(TARGET) $(TCP_CLIENT_TARGET) $(TCP_CLIENT_MULTI_TARGET)
+all: $(TARGET) $(TCP_CLIENT_TARGET) $(TCP_CLIENT_MULTI_TARGET) $(LIB_TARGET)
 
 $(TARGET): $(OBJS) build/test_app.o build/network_utils.o
 	$(CC) $(FLAGS) -o $@ $^ $(LDFLAGS)
@@ -28,6 +29,9 @@ $(TCP_CLIENT_TARGET): tests/tcp_client.c
 
 $(TCP_CLIENT_MULTI_TARGET): tests/multi_client.c
 	$(CC) $(FLAGS) -o $@ $^
+
+$(LIB_TARGET): $(OBJS)
+	ar rcs $@ $^
 
 build/%.o: %.c
 	$(CC) $(FLAGS) -c -o $@ $<

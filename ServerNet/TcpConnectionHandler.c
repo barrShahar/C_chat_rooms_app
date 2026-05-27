@@ -157,21 +157,23 @@ TcpConnectionHandler_Start(TcpConnectionHandler* a_handler)
         return TCP_RESULT_SUCCESS;
     }
 
-    /* NOTE on order: we flip m_state to RUNNING AFTER pthread_create
-     * succeeds. The worker's loop predicate `m_state == RUNNING` would
-     * cause it to exit immediately if we got here in the opposite order
-     * and the worker raced ahead of the store. We accept that the worker
-     * may briefly see STOPPED on its first iteration (in which case the
-     * loop just doesn't enter and the thread exits cleanly); the
-     * common path is that the store below lands before the worker runs. */
+    /* Publish RUNNING BEFORE pthread_create (mirrors the acceptor). The
+     * worker's loop predicate is `m_state == RUNNING`; if we stored RUNNING
+     * only after pthread_create, a worker that raced ahead of the store would
+     * read STOPPED, never enter the loop, and exit immediately — leaving a
+     * dead handler that silently never services any connection. Storing
+     * first guarantees the worker sees RUNNING on its first read. */
+    atomic_store(&a_handler->m_state, HANDLER_STATE_RUNNING);
     int result = pthread_create(&a_handler->m_thread, NULL, ClientHandlerIOLoop, a_handler);
     if (result != 0)
     {
+        /* Roll back so a later Start can retry and a later Stop won't try to
+         * join a thread that never came into existence. */
+        atomic_store(&a_handler->m_state, HANDLER_STATE_STOPPED);
         LOG_ERROR("pthread_create failed: %s", strerror(result));
         return TCP_RESULT_THREAD_CREATION_FAILED;
     }
 
-    atomic_store(&a_handler->m_state, HANDLER_STATE_RUNNING);
     return TCP_RESULT_SUCCESS;
 }
 
@@ -246,13 +248,17 @@ ProcessNewConnection(TcpConnectionHandler* handler)
         FD_SET(record->m_fdConnection, &handler->m_activeFdSet);
         UPDATE_MAX_FD(handler->m_maxFd, record->m_fdConnection);
         LOG_DEBUG("connection fd=%d registered, maxFd=%d", record->m_fdConnection, handler->m_maxFd);
+        /* Fire the new-connection callback here, on the worker thread, now
+         * that the record is registered and owned by us — the acceptor must
+         * not touch it after the pipe handoff (use-after-free otherwise). */
+        TcpServerController_NotifyNewConnection(handler->m_tcpCtrl, record);
     }
 }
 
 static void 
 ProcessClientData(TcpConnectionHandler* handler, TcpConnectionRecord* record, ListItr currentItr) 
 {
-    char buf[RECV_BUF_SIZE];
+    char buf[CONF_RECV_BUF_SIZE];
     ssize_t n = recv(record->m_fdConnection, buf, sizeof(buf), 0);
 
     if (n <= 0)

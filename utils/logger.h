@@ -17,8 +17,9 @@
 #define LOG_WRITE(level_str, fmt, ...) \
     do { \
         time_t _t = time(NULL); \
+        struct tm _tm; \
         char _buf[20]; \
-        strftime(_buf, sizeof(_buf), "%Y-%m-%d %H:%M:%S", localtime(&_t)); \
+        strftime(_buf, sizeof(_buf), "%Y-%m-%d %H:%M:%S", localtime_r(&_t, &_tm)); \
         fprintf(stderr, "[%s] [%-5s] %s:%d (%s) - " fmt "\n", \
                 _buf, level_str, __FILE__, __LINE__, __func__, ##__VA_ARGS__); \
     } while (0)

@@ -13,19 +13,33 @@ static void CallbackMessageReceived(const TcpConnectionRecord* a_record, const c
 int main(void)
 {
     LOG_INFO("Starting test application");
-    TcpServerController *tcp_server = TcpServerController_Create
-    ("test_server", SERVER_IP, SERVER_PORT);
+    TcpServerController *tcp_server = TcpServerController_Create(
+        SERVER_NAME, SERVER_IP, SERVER_PORT);
+    if (tcp_server == NULL)
+    {
+        LOG_ERROR("TcpServerController_Create failed");
+        return 1;
+    }
 
-    TcpServerController_SetCallbacks(tcp_server, CallbackNewConnection, CallbackDisconnect, CallbackMessageReceived);
+    if (TcpServerController_SetCallbacks(tcp_server, CallbackNewConnection,
+            CallbackDisconnect, CallbackMessageReceived) != TCP_RESULT_SUCCESS)
+    {
+        LOG_ERROR("TcpServerController_SetCallbacks failed");
+        TcpServerController_Destroy(&tcp_server);
+        return 1;
+    }
 
-    TcpServerController_Start(tcp_server);
+    if (TcpServerController_Start(tcp_server) != TCP_RESULT_SUCCESS)
+    {
+        LOG_ERROR("TcpServerController_Start failed");
+        TcpServerController_Destroy(&tcp_server);
+        return 1;
+    }
 
-
-    // wait for user to press enter
+    LOG_INFO("Server listening on %s:%d — press Enter to stop", SERVER_IP, SERVER_PORT);
     getchar();
 
     TcpServerController_Stop(tcp_server);
-
     TcpServerController_Destroy(&tcp_server);
 
     LOG_INFO("Test application finished");
