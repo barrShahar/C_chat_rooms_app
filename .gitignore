@@ -25,3 +25,5 @@ out.*
 *.log
 ServerNet/compile_commands.json
 ServerNet/.cache/
+.cache/
+*.json
