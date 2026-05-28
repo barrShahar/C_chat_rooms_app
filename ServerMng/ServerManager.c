@@ -27,10 +27,52 @@ static void ServerManager_SendOrLog(const TcpConnectionRecord* a_record, ChatSta
 static size_t ServerManagerHashFunctionDJB2(const void* a_key);
 static int ServerManagerEqualFunction(const void* a_firstKey, const void* a_secondKey);
 
-/* Action functions */
+ /* Action functions */
 static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
-static void ServerManager_ActionDisplayUsers(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
-/*** End of Action functions ***/
+static void ServerManager_ActionLogin(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+static void ServerManager_ActionLogout(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+static void ServerManager_ActionExit(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+static void ServerManager_ActionCreateGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+static void ServerManager_ActionJoinGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+static void ServerManager_ActionLeaveGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+static void ServerManager_ActionListUsers(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+static void ServerManager_ActionListGroups(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+ /*** End of Action functions ***/
+ typedef void (*ActionFn)(ServerManager*, const TcpConnectionRecord*, const ChatMessage*);
+
+ typedef struct
+ {
+    MessageOpcode m_opcode;
+    const char*   m_name;
+    ActionFn      m_fn;
+ }ActionEntry;
+
+ static const ActionEntry s_actions[] = 
+ {
+    { OPCODE_REGISTER,     "register",     ServerManager_ActionRegister     },
+    { OPCODE_LOGIN,        "login",        ServerManager_ActionLogin        },
+    { OPCODE_LOGOUT,       "logout",       ServerManager_ActionLogout       },
+    { OPCODE_EXIT,         "exit",         ServerManager_ActionExit         },
+    { OPCODE_CREATE_GROUP, "create_group", ServerManager_ActionCreateGroup  },
+    { OPCODE_JOIN_GROUP,   "join_group",   ServerManager_ActionJoinGroup    },
+    { OPCODE_LEAVE_GROUP,  "leave_group",  ServerManager_ActionLeaveGroup   },
+    { OPCODE_LIST_USERS,   "list_users",   ServerManager_ActionListUsers    },
+    { OPCODE_LIST_GROUPS,  "list_groups",  ServerManager_ActionListGroups   },
+};
+
+static const size_t s_actionsCount = sizeof(s_actions) / sizeof(s_actions[0]);
+
+
+static const ActionEntry* FindAction(MessageOpcode a_opcode)
+{
+    for (size_t i = 0; i < s_actionsCount; ++i)
+    {
+        if (s_actions[i].m_opcode == a_opcode) return &s_actions[i];
+    }
+    return NULL;
+}
+
+
 
 /*** ServerManager functions ***/
 ServerManager*
@@ -141,17 +183,15 @@ ServerManagerCallbackRecv(void* a_context, const TcpConnectionRecord* a_record, 
         return;
     }
 
-    LOG_DEBUG("Activate action: %s", decodedMessage.m_value);
-    switch (decodedMessage.m_opcode)
+    const ActionEntry* action = FindAction(decodedMessage.m_opcode);
+    if (action == NULL)
     {
-        case OPCODE_REGISTER:
-            ServerManager_ActionRegister(manager, a_record, &decodedMessage);
-            break;
-        default:
-            LOG_WARN("Unhandled opcode: 0x%02x", decodedMessage.m_opcode);
-            ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, NULL, 0);
-            break;
+        LOG_WARN("Unhandled opcode: 0x%02x", decodedMessage.m_opcode);
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, NULL, 0);
+        return;
     }
+    LOG_DEBUG("Dispatching action: %s", action->m_name);
+    action->m_fn(manager, a_record, &decodedMessage);
 }
 
 static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
@@ -169,7 +209,61 @@ static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConn
     ServerManager_SendOrLog(a_record, CHAT_OK, "User added", sizeof("User added"));
 }
 
-const char* 
+static void ActionNotImplemented(const TcpConnectionRecord* a_record, const char* a_name)
+{
+    LOG_INFO("Action '%s' not yet implemented", a_name);
+    ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, "Not implemented", sizeof("Not implemented"));
+}
+
+static void ServerManager_ActionLogin(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_manager; (void)a_message;
+    ActionNotImplemented(a_record, "login");
+}
+
+static void ServerManager_ActionLogout(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_manager; (void)a_message;
+    ActionNotImplemented(a_record, "logout");
+}
+
+static void ServerManager_ActionExit(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_manager; (void)a_message;
+    ActionNotImplemented(a_record, "exit");
+}
+
+static void ServerManager_ActionCreateGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_manager; (void)a_message;
+    ActionNotImplemented(a_record, "create_group");
+}
+
+static void ServerManager_ActionJoinGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_manager; (void)a_message;
+    ActionNotImplemented(a_record, "join_group");
+}
+
+static void ServerManager_ActionLeaveGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_manager; (void)a_message;
+    ActionNotImplemented(a_record, "leave_group");
+}
+
+static void ServerManager_ActionListUsers(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_manager; (void)a_message;
+    ActionNotImplemented(a_record, "list_users");
+}
+
+static void ServerManager_ActionListGroups(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_manager; (void)a_message;
+    ActionNotImplemented(a_record, "list_groups");
+}
+
+const char*
 ServerResult_ToString(const ServerResult a_result)
 {
     switch ((int)a_result)
