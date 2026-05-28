@@ -1,11 +1,13 @@
 CC      = gcc
 CFLAGS  = -g -Wall -Wextra -std=c11 -D_DEFAULT_SOURCE
-INCLUDES = -I. -Iutils -IServerNet -IServerMng -Idb
+INCLUDES = -I. -Iutils -IServerNet -IServerMng -IClientNet -IClient -Idb
 
 BUILD_DIR = build
 LIB_DIR   = ServerNet/lib
 LDFLAGS   = -L$(LIB_DIR) -ltcpserver -Ldb -lDataStructures -lpthread
-TARGET    = $(BUILD_DIR)/out.serverMain
+CLIENT_LDFLAGS = -LClient/lib -lclientapp -LClientNet/lib -lclientcontroller
+TARGET        = $(BUILD_DIR)/out.serverMain
+CLIENT_TARGET = $(BUILD_DIR)/out.client
 LOG_DIR   = logs
 
 SRVMNG_SRCS = $(wildcard ServerMng/*.c)
@@ -17,13 +19,15 @@ UTILS_OBJS = $(patsubst %.c, $(BUILD_DIR)/%.o, $(UTILS_SRCS))
 _ := $(shell mkdir -p $(BUILD_DIR)/ServerMng $(BUILD_DIR)/utils)
 _ := $(shell mkdir -p $(LOG_DIR))
 
-MAIN_OBJ = $(BUILD_DIR)/serverMain.o
+MAIN_OBJ        = $(BUILD_DIR)/serverMain.o
+CLIENT_MAIN_OBJ = $(BUILD_DIR)/clientMain.o
 
 # Subdirectories that own their libraries and must be built before the
 # top-level link step. ServerNet produces libtcpserver.a (used via -ltcpserver
-# in LDFLAGS); ClientNet produces libclientcontroller.a. Without listing them
-# here the linker would fail with "cannot find -ltcpserver" on a clean build.
-SUBDIRS = ServerNet ClientNet
+# in LDFLAGS); ClientNet produces libclientcontroller.a; Client produces
+# libclientapp.a. Without listing them here the linker would fail with
+# "cannot find -lxxx" on a clean build.
+SUBDIRS = ServerNet ClientNet Client
 
 # .PHONY on the subdir names forces make to always enter each directory even
 # though a directory with that name already exists on disk. Without .PHONY,
@@ -31,10 +35,10 @@ SUBDIRS = ServerNet ClientNet
 # sub-make, so library sources would never be recompiled when they change.
 .PHONY: all clean $(SUBDIRS)
 
-# $(SUBDIRS) is listed before $(TARGET) so libraries exist by link time.
-# Without this ordering a clean build would fail because libtcpserver.a has
-# not been created yet when $(TARGET) tries to link against it.
-all: $(SUBDIRS) $(TARGET)
+# $(SUBDIRS) is listed before targets so libraries exist by link time.
+# Without this ordering a clean build would fail because the archives have
+# not been created yet when the link step runs.
+all: $(SUBDIRS) $(TARGET) $(CLIENT_TARGET)
 
 # $@ expands to the directory name, so one rule drives all subdirectories.
 # Each sub-make checks its own sources and only rebuilds what changed.
@@ -43,6 +47,12 @@ $(SUBDIRS):
 
 $(TARGET): $(SRVMNG_OBJS) $(UTILS_OBJS) $(MAIN_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# The client links its own archive plus the ClientController archive, and
+# pulls in network_utils.o directly (ClientController references it but the
+# archive doesn't bundle it).
+$(CLIENT_TARGET): $(CLIENT_MAIN_OBJ) $(UTILS_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(CLIENT_LDFLAGS)
 
 $(BUILD_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<

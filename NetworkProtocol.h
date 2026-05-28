@@ -14,7 +14,10 @@
  *   OPCODE_REGISTER, OPCODE_LOGIN                    -> "name\0password\0"
  *   OPCODE_CREATE_GROUP, OPCODE_JOIN_GROUP/LEAVE_GROUP -> "group_name\0"
  *   OPCODE_LOGOUT, OPCODE_EXIT                       -> (empty, Length = 0)
+ *   OPCODE_LIST_USERS, OPCODE_LIST_GROUPS            -> (empty, Length = 0)
  *   OPCODE_RESPONSE                                  -> status_byte + "message\0"
+ *     For LIST_USERS / LIST_GROUPS responses, the message is a newline-
+ *     separated list of names, e.g. "alice\nbob\ncarol\0".
  */
 
 #define CHAT_HEADER_SIZE  4   /* 1 (type) + 2 (length) + 1 (status) */
@@ -29,6 +32,8 @@ typedef enum {
     OPCODE_CREATE_GROUP = 0x05,
     OPCODE_JOIN_GROUP   = 0x06,
     OPCODE_LEAVE_GROUP  = 0x07,
+    OPCODE_LIST_USERS   = 0x08,
+    OPCODE_LIST_GROUPS  = 0x09,
 
     OPCODE_RESPONSE     = 0x81,
 } MessageOpcode;
