@@ -8,7 +8,7 @@ int
 main(void)
 {
     LOG_INFO("Starting Chat rooms server");
-    ServerManager* serverManager = ServerManager_Create();
+    ServerManager* serverManager = ServerManager_Create(CONF_SERVER_NAME, CONF_SERVER_IP, CONF_SERVER_PORT);
     if (serverManager == NULL)
     {
         LOG_ERROR("Failed to create server manager");
@@ -21,7 +21,11 @@ main(void)
         return 1;
     }
     
-
+    getchar();
+    
+    LOG_INFO("Stopping server manager");
+    ServerManager_Stop(serverManager);
+    LOG_INFO("Destroying server manager");
     ServerManager_Destroy(&serverManager);
     LOG_INFO("Server manager destroyed");
 

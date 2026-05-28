@@ -50,3 +50,41 @@ void UserManager_Destroy(UserManager** a_manager)
     free(*a_manager);
     *a_manager = NULL;
 }
+
+
+UserManagerResult UserManager_AddUser(UserManager* a_manager, const char* a_username, const char* a_password)
+{
+    if (a_manager == NULL || a_username == NULL || a_password == NULL)
+    {
+        return USER_MANAGER_RESULT_NULL_PTR;
+    }
+}
+
+UserManagerResult UserManager_RemoveUser(UserManager* a_manager, const char* a_username)
+{
+    if (a_manager == NULL || a_username == NULL)
+    {
+        return USER_MANAGER_RESULT_NULL_PTR;
+    }
+}
+
+const char*
+UserManagerResult_ToString(const UserManagerResult a_result)
+{
+    switch (a_result) {
+        case USER_MANAGER_RESULT_SUCCESS:           return "SUCCESS";
+        case USER_MANAGER_RESULT_NULL_PTR:          return "NULL_PTR";
+        case USER_MANAGER_RESULT_INVALID_ARGUMENT:   return "INVALID_ARGUMENT";
+        case USER_MANAGER_RESULT_ALLOCATION_FAILED: return "ALLOCATION_FAILED";
+        case USER_MANAGER_RESULT_INTERNAL_ERROR:    return "INTERNAL_ERROR";
+        case USER_MANAGER_RESULT_BAD_CREDS:         return "BAD_CREDS";
+        case USER_MANAGER_RESULT_NAME_TAKEN:        return "NAME_TAKEN";
+        case USER_MANAGER_RESULT_NOT_FOUND:         return "NOT_FOUND";
+        case USER_MANAGER_RESULT_ALREADY_IN:        return "ALREADY_IN";
+        case USER_MANAGER_RESULT_NOT_IN:            return "NOT_IN";
+        case USER_MANAGER_RESULT_NOT_LOGGED:        return "NOT_LOGGED";
+        case USER_MANAGER_RESULT_ALREADY_LOG:       return "ALREADY_LOG";
+        case USER_MANAGER_RESULT_MALFORMED:         return "MALFORMED";
+        default:                                    return "UNKNOWN_ERROR";
+    }
+}

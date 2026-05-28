@@ -14,6 +14,7 @@
 #define DEFAULT_HOST "127.0.0.1"
 #define DEFAULT_PORT 8080
 #define BUF_SIZE 1024
+#define MAX_EMPTY_LOOPS 3
 
 #define IS_DISCONNECTED(num) (num == 0)
 
@@ -29,8 +30,10 @@ int main(void)
     int* clients = calloc(NUMBER_OF_CLIENTS, sizeof(int));
 
     long loopNum = 0;
+    int emptyLoops = 0;
     while (true)
     {
+        int activeOrConnected = 0;
         for (int i = 0 ; i < NUMBER_OF_CLIENTS ; ++i)
         {
             if (IS_DISCONNECTED(clients[i]))
@@ -38,10 +41,12 @@ int main(void)
                 if (((double)rand() / RAND_MAX) > 0.3)   // 30% to connect
                 {
                     clients[i] = ClientConnect(i);
+                    if (clients[i]) activeOrConnected++;
                 }
             }
             else
             {
+                activeOrConnected++;
                 if (((double)rand() / RAND_MAX) < 0.05)
                 {
                     clients[i] = ClientDisconnect(clients[i], i);
@@ -52,6 +57,20 @@ int main(void)
                 }
             }
         }
+
+        if (activeOrConnected == 0)
+        {
+            if (++emptyLoops >= MAX_EMPTY_LOOPS)
+            {
+                LOG_INFO("server appears down, exiting after %d empty loops", emptyLoops);
+                break;
+            }
+        }
+        else
+        {
+            emptyLoops = 0;
+        }
+
         LOG_INFO("loop num: %ld", loopNum++);
         sleep(1);
     }
@@ -101,17 +120,18 @@ static int ClientSayHello(int fd, int clientNumber)
 
     LOG_DEBUG("Sent: %s", message);
 
-    // char buf[BUF_SIZE];
-    // ssize_t n = recv(fd, buf, sizeof(buf) - 1, 0);
-    // if (n < 0) {
-    //     Die("recv");
-    // }
-    // if (n == 0) {
-    //     printf("Server closed connection without reply\n");
-    // } else {
-    //     buf[n] = '\0';
-    //     printf("Reply: %s", buf);
-    // }
+    char buf[BUF_SIZE];
+    ssize_t n = recv(fd, buf, sizeof(buf) - 1, 0);
+    if (n < 0) {
+        Die("recv");
+    }
+    if (n == 0) {
+        LOG_INFO("Client %d: server closed connection", clientNumber);
+        close(fd);
+        return 0;
+    }
+    buf[n] = '\0';
+    LOG_DEBUG("Client %d received: %s", clientNumber, buf);
 
     return fd;
 }

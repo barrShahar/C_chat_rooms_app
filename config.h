@@ -1,3 +1,4 @@
 #define CONF_RECV_BUF_SIZE 4096
 #define CONF_SERVER_IP "127.0.0.1"
 #define CONF_SERVER_PORT 8080
+#define CONF_SERVER_NAME "Chat rooms server"

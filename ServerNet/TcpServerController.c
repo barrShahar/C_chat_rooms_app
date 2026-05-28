@@ -111,13 +111,14 @@ struct TcpServerController
      * — those rely on the "callbacks are immutable while RUNNING" invariant. */
     pthread_mutex_t m_lock;
 
-    /* Callbacks: only mutated by SetCallbacks, which requires state==STOPPED
+    /* Callbacks + context: only mutated by SetCallbacks, which requires state==STOPPED
      * (enforced under m_lock). Read by worker threads on the hot path with
      * no lock. The happens-before edges through pthread_create (in Start)
      * and pthread_join (in Stop) make this safe. */
-    void (*m_callbackNewConnection)(const TcpConnectionRecord* a_record);
-    void (*m_callbackDisconnect)(const TcpConnectionRecord* a_record);
-    void (*m_callbackMessageReceived)(const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
+    void* m_callbackContext;
+    void (*m_callbackNewConnection)(void* a_context, const TcpConnectionRecord* a_record);
+    void (*m_callbackDisconnect)(void* a_context, const TcpConnectionRecord* a_record);
+    void (*m_callbackMessageReceived)(void* a_context, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
 };
 
 TcpServerController* 
@@ -138,6 +139,7 @@ TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t 
     controller->m_port = a_port;
     /* malloc does not zero: initialize callbacks so the hot-path NULL checks
      * are well-defined even if the caller never calls SetCallbacks. */
+    controller->m_callbackContext = NULL;
     controller->m_callbackNewConnection = NULL;
     controller->m_callbackDisconnect = NULL;
     controller->m_callbackMessageReceived = NULL;
@@ -164,6 +166,29 @@ TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t 
 
     LOG_INFO("server '%s' created on %s:%d", a_name, a_ip, a_port);
     return controller;
+}
+
+TcpResult
+TcpServerController_SendMessage(TcpServerController* a_controller,
+    const int a_fd,
+    const char* a_message, 
+    size_t a_length)
+{
+    if (a_controller == NULL || a_message == NULL)
+    {
+        return TCP_RESULT_NULL_PTR;
+    }
+    if (a_length == 0 || a_fd < 0)
+    {
+        return TCP_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (send(a_fd, a_message, a_length, 0) < 0)
+    {
+        return TCP_RESULT_SOCKET_ERROR;
+    }
+
+    return TCP_RESULT_SUCCESS;
 }
 
 TcpResult 
@@ -338,7 +363,7 @@ TcpServerController_NotifyNewConnection(TcpServerController* a_controller,
 
     if (a_controller->m_callbackNewConnection)
     {
-        a_controller->m_callbackNewConnection(a_record);
+        a_controller->m_callbackNewConnection(a_controller->m_callbackContext, a_record);
     }
 }
 
@@ -356,7 +381,7 @@ TcpServerController_ProcessMessage(
 
     if (a_controller->m_callbackMessageReceived)
     {
-        a_controller->m_callbackMessageReceived(a_record, a_message, a_length);
+        a_controller->m_callbackMessageReceived(a_controller->m_callbackContext, a_record, a_message, a_length);
     }
     return TCP_RESULT_SUCCESS;
 }
@@ -371,7 +396,7 @@ TcpServerController_ProcessDisconnect(TcpServerController* a_controller, TcpConn
 
     if (a_controller->m_callbackDisconnect)
     {
-        a_controller->m_callbackDisconnect(a_record);
+        a_controller->m_callbackDisconnect(a_controller->m_callbackContext, a_record);
     }
 
     LOG_DEBUG("disconnected from %s:%d (fd=%d)",
@@ -383,11 +408,12 @@ TcpServerController_ProcessDisconnect(TcpServerController* a_controller, TcpConn
 
 
 
-TcpResult 
-TcpServerController_SetCallbacks(TcpServerController* a_controller, 
-    void (*a_callbackNewConnection)(const TcpConnectionRecord* a_record), 
-    void (*a_callbackDisconnect)(const TcpConnectionRecord* a_record), 
-    void (*a_callbackMessageReceived)(const TcpConnectionRecord* a_record, const char* a_message, size_t a_length))
+TcpResult
+TcpServerController_SetCallbacks(TcpServerController* a_controller,
+    void* a_context,
+    void (*a_callbackNewConnection)(void* a_context, const TcpConnectionRecord* a_record),
+    void (*a_callbackDisconnect)(void* a_context, const TcpConnectionRecord* a_record),
+    void (*a_callbackMessageReceived)(void* a_context, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length))
 {
     if (a_controller == NULL)
     {
@@ -407,6 +433,7 @@ TcpServerController_SetCallbacks(TcpServerController* a_controller,
         return TCP_RESULT_INVALID_ARGUMENT;
     }
 
+    a_controller->m_callbackContext = a_context;
     a_controller->m_callbackNewConnection = a_callbackNewConnection;
     a_controller->m_callbackDisconnect = a_callbackDisconnect;
     a_controller->m_callbackMessageReceived = a_callbackMessageReceived;

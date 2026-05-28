@@ -1,6 +1,6 @@
 #ifndef __SERVER_MANAGER_H__
 #define __SERVER_MANAGER_H__
-
+#include <stdint.h>
 /**
  * Threading contract
  *
@@ -23,6 +23,8 @@ typedef enum ServerResult
     SERVER_RESULT_ALREADY_RUNNING,
     SERVER_RESULT_NOT_RUNNING,
     SERVER_RESULT_NETWORK_ERROR,
+    SERVER_RESULT_SEND_ERROR,
+    SERVER_RESULT_RECEIVE_ERROR,
     SERVER_RESULT_INTERNAL_ERROR
 } ServerResult;
 
@@ -32,7 +34,7 @@ typedef enum ServerResult
  * @param a_result Instance of ServerResult
  * @return const char*
  */
-const char* ServerResult_ToString(ServerResult a_result);
+const char* ServerResult_ToString(const ServerResult a_result);
 
 /**
  * @brief Create a server manager
@@ -42,7 +44,7 @@ const char* ServerResult_ToString(ServerResult a_result);
  * @return A pointer to the created server manager
  * @retval NULL on allocation or initialization failure
  */
-ServerManager* ServerManager_Create(void);
+ServerManager* ServerManager_Create(char* a_serverName, char* a_serverIp, uint16_t a_serverPort);
 
 /**
  * @brief Destroy a server manager
@@ -72,6 +74,6 @@ ServerResult ServerManager_Start(ServerManager* a_manager);
  *
  * @param a_manager A previously created ServerManager
  */
-void ServerManager_Stop(ServerManager* a_manager);
+ ServerResult ServerManager_Stop(ServerManager* a_manager);
 
 #endif /* __SERVER_MANAGER_H__ */

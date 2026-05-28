@@ -42,7 +42,8 @@ typedef enum TcpResult
  * @param a_result Instance of tcpResult
  * @return const char* 
  */
-const char* TcpResult_ToString(TcpResult a_result);
+const char* 
+TcpResult_ToString(TcpResult a_result);
 
 /**
  * @brief Create a TCP server controller
@@ -53,7 +54,8 @@ const char* TcpResult_ToString(TcpResult a_result);
  * @return a pointer to the created controller
  * @retval NULL on failure due to allocation or initialization error
  */
-TcpServerController* TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t a_port);
+TcpServerController* 
+TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t a_port);
 
 /**
  * @brief Destroy a TCP server controller
@@ -62,7 +64,8 @@ TcpServerController* TcpServerController_Create(const char* a_name, const char* 
  *
  * @params[in] a_controller : Address of a previously created controller pointer
  */
-void TcpServerController_Destroy(TcpServerController** a_controller);
+void 
+TcpServerController_Destroy(TcpServerController** a_controller);
 
 /**
  * @brief Register the callbacks invoked by the controller
@@ -71,16 +74,19 @@ void TcpServerController_Destroy(TcpServerController** a_controller);
  *          threading contract at the top of this header.
  *
  * @params a_controller              : A previously created TcpServerController
+ * @params a_context                 : Opaque pointer passed as the first argument to every callback
  * @params a_callbackNewConnection   : Called on new client connection
  * @params a_callbackDisconnect      : Called on client disconnect
  * @params a_callbackMessageReceived : Called on incoming message
  * @return TCP_RESULT_SUCCESS on success, TCP_RESULT_INVALID_ARGUMENT if the
  *         server is already running, or another error code on failure
  */
-TcpResult TcpServerController_SetCallbacks(TcpServerController* a_controller,
-    void (*a_callbackNewConnection)(const TcpConnectionRecord* a_record),
-    void (*a_callbackDisconnect)(const TcpConnectionRecord* a_record),
-    void (*a_callbackMessageReceived)(const TcpConnectionRecord* a_record, const char* a_message, size_t a_length));
+TcpResult
+TcpServerController_SetCallbacks(TcpServerController* a_controller,
+    void* a_context,
+    void (*a_callbackNewConnection)(void* a_context, const TcpConnectionRecord* a_record),
+    void (*a_callbackDisconnect)(void* a_context, const TcpConnectionRecord* a_record),
+    void (*a_callbackMessageReceived)(void* a_context, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length));
 
 /**
  * @brief Start the controller
@@ -89,14 +95,16 @@ TcpResult TcpServerController_SetCallbacks(TcpServerController* a_controller,
  * @params a_controller : A previously created TcpServerController
  * @return TCP_RESULT_SUCCESS on success or an error code on failure
  */
-TcpResult TcpServerController_Start(TcpServerController* a_controller);
+TcpResult 
+TcpServerController_Start(TcpServerController* a_controller);
 
 /**
  * @brief Stop the controller
  *
  * @params a_controller : A previously created TcpServerController
  */
-void TcpServerController_Stop(TcpServerController* a_controller);
+void 
+TcpServerController_Stop(TcpServerController* a_controller);
 
 /**
  * @brief Process a newly accepted connection
@@ -109,7 +117,8 @@ void TcpServerController_Stop(TcpServerController* a_controller);
  *
  * @return TCP_RESULT_SUCCESS on success or an error code on failure
  */
-TcpResult TcpServerController_ProcessConnection(TcpServerController* a_controller,
+TcpResult 
+TcpServerController_ProcessConnection(TcpServerController* a_controller,
     TcpConnectionRecord* a_record);
 
 /**
@@ -123,7 +132,8 @@ TcpResult TcpServerController_ProcessConnection(TcpServerController* a_controlle
  * @params a_controller : A previously created TcpServerController
  * @params a_record     : Connection record of the newly registered client
  */
-void TcpServerController_NotifyNewConnection(TcpServerController* a_controller,
+void 
+TcpServerController_NotifyNewConnection(TcpServerController* a_controller,
     const TcpConnectionRecord* a_record);
 
 /**
@@ -133,7 +143,8 @@ void TcpServerController_NotifyNewConnection(TcpServerController* a_controller,
  * @params a_record     : Connection record of the disconnected client
  * @return TCP_RESULT_SUCCESS on success or an error code on failure
  */
-TcpResult TcpServerController_ProcessDisconnect(TcpServerController* a_controller, TcpConnectionRecord* a_record);
+TcpResult 
+TcpServerController_ProcessDisconnect(TcpServerController* a_controller, TcpConnectionRecord* a_record);
 
 /**
  * @brief Process an incoming message from a client
@@ -144,7 +155,23 @@ TcpResult TcpServerController_ProcessDisconnect(TcpServerController* a_controlle
  * @params a_length     : Length of the message in bytes
  * @return TCP_RESULT_SUCCESS on success or an error code on failure
  */
-TcpResult TcpServerController_ProcessMessage(TcpServerController* a_controller, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
+TcpResult 
+TcpServerController_ProcessMessage(TcpServerController* a_controller, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
+
+/**
+ * @brief Send a message to a client
+ *
+ * @params a_controller : A previously created TcpServerController
+ * @params a_fd         : File descriptor of the client
+ * @params a_message    : Message buffer
+ * @params a_length     : Length of the message in bytes
+ * @return TCP_RESULT_SUCCESS on success or an error code on failure
+ */
+TcpResult
+TcpServerController_SendMessage(TcpServerController* a_controller,
+    const int a_fd,
+    const char* a_message, 
+    size_t a_length);
 
 /**
  * @brief Get the controller's listening port
@@ -152,7 +179,8 @@ TcpResult TcpServerController_ProcessMessage(TcpServerController* a_controller, 
  * @params a_controller : A previously created TcpServerController
  * @return the port in host byte order
  */
-uint16_t TcpServerController_GetPort(TcpServerController* a_controller);
+uint16_t 
+TcpServerController_GetPort(TcpServerController* a_controller);
 
 /**
  * @brief Get the controller's bound IP address
@@ -160,7 +188,8 @@ uint16_t TcpServerController_GetPort(TcpServerController* a_controller);
  * @params a_controller : A previously created TcpServerController
  * @return the IP address in network byte order
  */
-uint32_t TcpServerController_GetIp(TcpServerController* a_controller);
+uint32_t 
+TcpServerController_GetIp(TcpServerController* a_controller);
 
 
 #endif /* __TCP_SERVER_CONTROLLER_H__ */

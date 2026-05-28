@@ -1,10 +1,14 @@
 #include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/socket.h>
 #include "ServerManager.h"
 #include "UserManager.h"
 #include "GroupManager.h"
 #include "TcpServerController.h"
 #include "logger.h"
 #include "config.h"
+#include "NetworkProtocol.h"
 
 struct ServerManager
 {
@@ -14,20 +18,29 @@ struct ServerManager
 };
 
 // call back functions for TcpServerController
-static void onNewConnection(const TcpConnectionRecord* a_record);
-static void onDisconnect(const TcpConnectionRecord* a_record);
-static void onMessageReceived(const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
+static void ServerManagerCallbackNewConnection(void* a_context, const TcpConnectionRecord* a_record);
+static void ServerManagerCallbackDisconnect(void* a_context, const TcpConnectionRecord* a_record);
+static void ServerManagerCallbackRecv(void* a_context, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
+static ServerResult ServerManager_SendMessage(const int a_fd, ChatStatus a_status, const char* a_message, size_t a_length);
+static void ServerManager_SendOrLog(const TcpConnectionRecord* a_record, ChatStatus a_status, const char* a_message, size_t a_length);
 
+size_t hashFunction(const void* a_key);
+int equalFunction(const void* a_firstKey, const void* a_secondKey);
 
+/* Action functions */
+static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+/*** End of Action functions ***/
+
+/*** ServerManager functions ***/
 ServerManager*
-ServerManager_Create(void)
+ServerManager_Create(char* a_serverName, char* a_serverIp, uint16_t a_serverPort)
 {
     ServerManager* serverManager = (ServerManager*)malloc(sizeof(ServerManager));
     if (serverManager == NULL)
     {
         return NULL;
     }
-    serverManager->m_userManager = UserManager_Create();
+    serverManager->m_userManager = UserManager_Create(hashFunction, equalFunction);
     if (serverManager->m_userManager == NULL)
     {
         free(serverManager);
@@ -39,7 +52,7 @@ ServerManager_Create(void)
         free(serverManager);
         return NULL;
     }
-    serverManager->m_tcpServerController = TcpServerController_Create("Chat rooms server", CONF_SERVER_IP, CONF_SERVER_PORT);
+    serverManager->m_tcpServerController = TcpServerController_Create(a_serverName, a_serverIp, a_serverPort);
     if (serverManager->m_tcpServerController == NULL)
     {
         free(serverManager);
@@ -47,9 +60,10 @@ ServerManager_Create(void)
     }
 
     if (TcpServerController_SetCallbacks(serverManager->m_tcpServerController,
-         onNewConnection,
-          onDisconnect,
-           onMessageReceived) != TCP_RESULT_SUCCESS)
+         serverManager,
+         ServerManagerCallbackNewConnection,
+         ServerManagerCallbackDisconnect,
+         ServerManagerCallbackRecv) != TCP_RESULT_SUCCESS)
     {
         free(serverManager);
         return NULL;
@@ -82,17 +96,169 @@ ServerResult ServerManager_Start(ServerManager* a_serverManager)
     return SERVER_RESULT_SUCCESS;
 }
 
-
-static void onNewConnection(const TcpConnectionRecord* a_record)
+ServerResult ServerManager_Stop(ServerManager* a_manager)
 {
+    if (a_manager == NULL)
+    {
+        LOG_ERROR("Server manager is NULL");
+        return SERVER_RESULT_NULL_PTR;
+    }
+    TcpServerController_Stop(a_manager->m_tcpServerController);
+    LOG_INFO("Server manager stopped");
+    return SERVER_RESULT_SUCCESS;
+}
+
+// Callback functions for TcpServerController
+static void
+ServerManagerCallbackNewConnection(void* a_context, const TcpConnectionRecord* a_record)
+{
+    (void)a_context;
     LOG_INFO("New connection from %s:%d", a_record->m_ip, a_record->m_port);
 }
-static void onDisconnect(const TcpConnectionRecord* a_record)
+
+static void
+ServerManagerCallbackDisconnect(void* a_context, const TcpConnectionRecord* a_record)
 {
+    (void)a_context;
     LOG_INFO("Disconnection from %s:%d", a_record->m_ip, a_record->m_port);
 }
-static void onMessageReceived(const TcpConnectionRecord* a_record, const char* a_message, size_t a_length)
+
+static void
+ServerManagerCallbackRecv(void* a_context, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length)
 {
-    (void)a_length;
-    LOG_INFO("Message received from %s:%d: %s", a_record->m_ip, a_record->m_port, a_message);
+    ServerManager* manager = (ServerManager*)a_context;
+    LOG_INFO("message from fd=%d ip=%s: %.*s", a_record->m_fdConnection, a_record->m_ip, (int)a_length, a_message);
+
+    ChatMessage decodedMessage;
+    if (!DeserializeChatMessage(a_message, a_length, &decodedMessage))
+    {
+        LOG_ERROR("Failed to deserialize message");
+        ServerManager_SendOrLog(a_record, CHAT_ERR_MALFORMED, NULL, 0);
+        return;
+    }
+
+    switch (decodedMessage.m_opcode)
+    {
+        case OPCODE_REGISTER:
+            ServerManager_ActionRegister(manager, a_record, &decodedMessage);
+            break;
+        default:
+            LOG_WARN("Unhandled opcode: 0x%02x", decodedMessage.m_opcode);
+            ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, NULL, 0);
+            break;
+    }
+}
+
+static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    LOG_INFO("Registering user: %s", a_message->m_value);
+
+    const char* username = (const char*)a_message->m_value;
+    const char* password = username + strlen(username) + 1;
+    UserManagerResult addUserResult = UserManager_AddUser(a_manager->m_userManager, username, password);
+    if (addUserResult != USER_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("(TODO: Handle this error) Failed to add user: %s", UserManagerResult_ToString(addUserResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_ToString(addUserResult), a_message->m_length);
+    }
+    ServerManager_SendOrLog(a_record, CHAT_OK, "User added", sizeof("User added"));
+}
+
+const char* 
+ServerResult_ToString(const ServerResult a_result)
+{
+    switch ((int)a_result)
+    {
+        case SERVER_RESULT_SUCCESS: return "SUCCESS";
+        case SERVER_RESULT_NULL_PTR: return "NULL_PTR";
+        case SERVER_RESULT_INVALID_ARGUMENT: return "INVALID_ARGUMENT";
+        case SERVER_RESULT_ALLOCATION_FAILED: return "ALLOCATION_FAILED";
+        case SERVER_RESULT_ALREADY_RUNNING: return "ALREADY_RUNNING";
+        case SERVER_RESULT_NOT_RUNNING: return "NOT_RUNNING";
+        case SERVER_RESULT_NETWORK_ERROR: return "NETWORK_ERROR";
+        case SERVER_RESULT_SEND_ERROR: return "SEND_ERROR";
+        case SERVER_RESULT_RECEIVE_ERROR: return "RECEIVE_ERROR";
+        case SERVER_RESULT_INTERNAL_ERROR: return "INTERNAL_ERROR";
+        default: return "UNKNOWN";
+    }
+
+
+}
+
+static ServerResult 
+ServerManager_SendMessage(const int a_fd, ChatStatus a_status, const char* a_message, size_t a_length)
+{
+    if (a_length > CHAT_MAX_VALUE)
+    {
+        LOG_ERROR("ServerManager_SendMessage: message too long");
+        return SERVER_RESULT_INVALID_ARGUMENT;
+    }
+    if (a_length > 0 && a_message == NULL)
+    {
+        LOG_ERROR("ServerManager_SendMessage: NULL message with non-zero length");
+        return SERVER_RESULT_INVALID_ARGUMENT;
+    }
+
+    ChatMessage encodedMessage;
+    encodedMessage.m_opcode = OPCODE_RESPONSE;
+    encodedMessage.m_status = a_status;
+    encodedMessage.m_length = (uint16_t)a_length;
+    if (a_length > 0)
+    {
+        memcpy(encodedMessage.m_value, a_message, a_length);
+    }
+
+    size_t buf_size = (size_t)CHAT_HEADER_SIZE + a_length;
+    char* serializedMessage = (char*)malloc(buf_size);
+    if (serializedMessage == NULL)
+    {
+        LOG_ERROR("ServerManager_SendMessage: failed to allocate memory");
+        return SERVER_RESULT_ALLOCATION_FAILED;
+    }
+
+    int serialized_len = SerializeChatMessage(&encodedMessage, (uint8_t*)serializedMessage, buf_size);
+    if (serialized_len < 0)
+    {
+        LOG_ERROR("ServerManager_SendMessage: failed to serialize message");
+        free(serializedMessage);
+        return SERVER_RESULT_INTERNAL_ERROR;
+    }
+
+    ssize_t bytes_sent = send(a_fd, serializedMessage, (size_t)serialized_len, 0);
+    free(serializedMessage);
+    if (bytes_sent < 0)
+    {
+        LOG_ERROR("ServerManager_SendMessage: failed to send message");
+        return SERVER_RESULT_SEND_ERROR;
+    }
+    if (bytes_sent != serialized_len)
+    {
+        LOG_ERROR("ServerManager_SendMessage: partial send");
+        return SERVER_RESULT_SEND_ERROR;
+    }
+    return SERVER_RESULT_SUCCESS;
+}
+
+static void
+ServerManager_SendOrLog(const TcpConnectionRecord* a_record, ChatStatus a_status, const char* a_message, size_t a_length)
+{
+    ServerResult sendResult = ServerManager_SendMessage(
+        a_record->m_fdConnection, a_status, a_message, a_length);
+
+    if (sendResult != SERVER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to send message to %s:%d: %s",
+                  a_record->m_ip, a_record->m_port,
+                  ServerResult_ToString(sendResult));
+    }
+}
+
+// Hash function for UserManager and GroupManager
+size_t hashFunction(const void* a_key)
+{
+    return (size_t)a_key;
+}
+int equalFunction(const void* a_firstKey, const void* a_secondKey)
+{
+    return *(int*)a_firstKey == *(int*)a_secondKey;
 }
