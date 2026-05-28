@@ -20,8 +20,8 @@ void TestRegisterProcess(ClientController* a_clientController)
 
     strcpy((char*)valueBuffer, name);
     strcpy((char*)valueBuffer + strlen(name) + 1, password);
-
-    strcpy((char*)message.m_value, (char*)valueBuffer);
+    memcpy(message.m_value, valueBuffer, message.m_length);
+    
 
     SerializeChatMessage(&message, messageBuffer, CONF_RECV_BUF_SIZE);
 

@@ -24,8 +24,8 @@ static void ServerManagerCallbackRecv(void* a_context, const TcpConnectionRecord
 static ServerResult ServerManager_SendMessage(const int a_fd, ChatStatus a_status, const char* a_message, size_t a_length);
 static void ServerManager_SendOrLog(const TcpConnectionRecord* a_record, ChatStatus a_status, const char* a_message, size_t a_length);
 
-size_t hashFunction(const void* a_key);
-int equalFunction(const void* a_firstKey, const void* a_secondKey);
+static size_t ServerManagerHashFunctionDJB2(const void* a_key);
+static int ServerManagerEqualFunction(const void* a_firstKey, const void* a_secondKey);
 
 /* Action functions */
 static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
@@ -40,7 +40,7 @@ ServerManager_Create(char* a_serverName, char* a_serverIp, uint16_t a_serverPort
     {
         return NULL;
     }
-    serverManager->m_userManager = UserManager_Create(hashFunction, equalFunction);
+    serverManager->m_userManager = UserManager_Create(ServerManagerHashFunctionDJB2, ServerManagerEqualFunction);
     if (serverManager->m_userManager == NULL)
     {
         free(serverManager);
@@ -159,7 +159,7 @@ static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConn
 
     const char* username = (const char*)a_message->m_value;
     const char* password = username + strlen(username) + 1;
-    UserManagerResult addUserResult = UserManager_AddUser(a_manager->m_userManager, username, password);
+    UserManagerResult addUserResult = UserManager_AddUser(a_manager->m_userManager, a_record->m_fdConnection, username, password);
     if (addUserResult != USER_MANAGER_RESULT_SUCCESS)
     {
         LOG_ERROR("(TODO: Handle this error) Failed to add user: %s", UserManagerResult_ToString(addUserResult));
@@ -258,11 +258,20 @@ ServerManager_SendOrLog(const TcpConnectionRecord* a_record, ChatStatus a_status
 }
 
 // Hash function for UserManager and GroupManager
-size_t hashFunction(const void* a_key)
-{
-    return (size_t)a_key;
+static size_t
+ServerManagerHashFunctionDJB2(const void *a_str) {
+    unsigned long hash = 5381;
+    int c;
+
+    while ((c = *(const char*)a_str++)) {
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+    }
+
+    return hash;
 }
-int equalFunction(const void* a_firstKey, const void* a_secondKey)
+
+static int 
+ServerManagerEqualFunction(const void* a_firstKey, const void* a_secondKey)
 {
-    return *(int*)a_firstKey == *(int*)a_secondKey;
+    return strcmp((const char*)a_firstKey, (const char*)a_secondKey) == 0;
 }

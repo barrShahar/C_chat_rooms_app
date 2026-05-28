@@ -264,7 +264,7 @@ ProcessClientData(TcpConnectionHandler* handler, TcpConnectionRecord* record, Li
     if (n <= 0)
     {
         if (n == 0) {
-            LOG_INFO("client fd=%d disconnected", record->m_fdConnection);
+            LOG_DEBUG("client fd=%d disconnected", record->m_fdConnection);
         } else {
             LOG_ERROR("recv error on fd=%d: %s", record->m_fdConnection, strerror(errno));
         }

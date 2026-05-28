@@ -2,7 +2,8 @@
 #include "logger.h"
 #include <stdlib.h>
 #include "HashMap.h"
-#include "TcpConnectionRecord.h"
+#include "User.h"
+
 
 struct UserManager
 {
@@ -11,10 +12,6 @@ struct UserManager
     int (*m_equalFunction)(const void* _firstKey, const void* _secondKey);
 };
 
-typedef struct User
-{
-
-} User;
 
 UserManager* UserManager_Create(
     size_t (*a_hashFunction)(const void* _key),
@@ -52,12 +49,22 @@ void UserManager_Destroy(UserManager** a_manager)
 }
 
 
-UserManagerResult UserManager_AddUser(UserManager* a_manager, const char* a_username, const char* a_password)
+UserManagerResult 
+UserManager_AddUser(UserManager* a_manager, const int a_fdConnection, const char* a_username, const char* a_password)
 {
     if (a_manager == NULL || a_username == NULL || a_password == NULL)
     {
         return USER_MANAGER_RESULT_NULL_PTR;
     }
+    LOG_DEBUG("Adding user: %s, password: %s", a_username, a_password);
+    User* user = User_Create(a_fdConnection, a_username, a_password);
+    if (user == NULL)
+    {
+        return USER_MANAGER_RESULT_ALLOCATION_FAILED;
+    }
+    HashMap_Insert(a_manager->m_users, a_username, user);
+    
+    LOG_INFO("User added: %s", a_username);
     return USER_MANAGER_RESULT_SUCCESS;
 }
 

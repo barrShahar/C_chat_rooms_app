@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <assert.h>
-
+#include <stdlib.h>
 #define IP_OCTET(ip, n)         (((ip) >> ((n) * 8)) & 0xFF)
 #define APPEND_PART(ip, byte)   (((ip) << 8) | (uint8_t)(byte))
 #define IS_VALID_PART(v)        ((v) <= 255)
@@ -56,4 +56,15 @@ bool is_valid_ip_address(const char* ip_str)
 
     // If both fail, it's not a valid IP string
     return false;
+}
+
+char* networkCopyString(const char* a_string)
+{
+    char* result = (char*)malloc(strlen(a_string) + 1);
+    if (result == NULL)
+    {
+        return NULL;
+    }
+    strcpy(result, a_string);
+    return result;
 }

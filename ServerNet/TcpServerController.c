@@ -62,7 +62,6 @@
  *   subordinate Stop functions cannot deadlock.
  * ---------------------------------------------------------------------------- */
 
-static char* CopyString(const char* a_string);
 
 /* StopUnlocked is the internal stop primitive. It does NOT take m_lock and
  * MUST be called with m_lock already held. Used by both Stop() (which
@@ -129,7 +128,7 @@ TcpServerController_Create(const char* a_name, const char* a_ip, const uint16_t 
     {
         return NULL;
     }
-    controller->m_name = CopyString(a_name);
+    controller->m_name = networkCopyString(a_name);
     if (controller->m_name == NULL)
     {
         free(controller);
@@ -459,13 +458,3 @@ uint32_t TcpServerController_GetIp(TcpServerController* a_controller)
     return a_controller->m_ip;
 }
 
-static char* CopyString(const char* a_string)
-{
-    char* result = (char*)malloc(strlen(a_string) + 1);
-    if (result == NULL)
-    {
-        return NULL;
-    }
-    strcpy(result, a_string);
-    return result;
-}

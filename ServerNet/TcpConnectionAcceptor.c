@@ -271,7 +271,7 @@ static void* TcpConnectionAcceptor_AcceptLoop(void* a_acceptor)
             continue;
         }
 
-        LOG_INFO("TcpConnectionAcceptor_AcceptLoop: new client connected: %d [%s:%d]",
+        LOG_DEBUG("new client connected: fd=%d [%s:%d]",
             fdConnectionToClient, ipBuffer, clientPort);
     }
     

@@ -57,7 +57,7 @@ void UserManager_Destroy(UserManager** a_manager);
  * @retval SERVER_RESULT_ALLOCATION_FAILED if the user cannot be added
  * @retval SERVER_RESULT_INTERNAL_ERROR if an internal error occurs
  */
-UserManagerResult UserManager_AddUser(UserManager* a_manager, const char* a_username, const char* a_password);
+UserManagerResult UserManager_AddUser(UserManager* a_manager, const int a_fdConnection, const char* a_username, const char* a_password);
 
 /**
  * @brief Remove a user from the user manager
