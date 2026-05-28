@@ -29,6 +29,7 @@ static int ServerManagerEqualFunction(const void* a_firstKey, const void* a_seco
 
 /* Action functions */
 static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
+static void ServerManager_ActionDisplayUsers(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message);
 /*** End of Action functions ***/
 
 /*** ServerManager functions ***/

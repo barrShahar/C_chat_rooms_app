@@ -43,7 +43,7 @@ void TestRegisterProcess(ClientController* a_clientController)
     // decode the response
 
     ChatMessage responseMessage;
-    if (!DeserializeChatMessage((char*)messageBuffer, CONF_RECV_BUF_SIZE, &responseMessage))
+    if (DeserializeChatMessage((char*)messageBuffer, CONF_RECV_BUF_SIZE, &responseMessage) != CHAT_OK)
     {
         LOG_ERROR("DeserializeChatMessage failed");
         return;

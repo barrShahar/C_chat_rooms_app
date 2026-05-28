@@ -6,7 +6,7 @@
 #include "ClientController.h"
 #include "NetworkProtocol.h"
 #include "config.h"
-#include "logger.h"
+#include "logger.h"     
 
 struct ClientApp
 {
@@ -27,12 +27,14 @@ ClientApp* ClientApp_Create(const char* a_ip, uint16_t a_port)
     app->m_controller = ClientController_Create(a_ip, a_port);
     if (app->m_controller == NULL)
     {
+        LOG_ERROR("Failed to create client controller");
         free(app);
         return NULL;
     }
     app->m_state = SESSION_DISCONNECTED;
     strcpy(app->m_ip, a_ip);
     app->m_port = a_port;
+    LOG_INFO("ClientApp created");
     return app;
 }
 
@@ -46,6 +48,7 @@ void ClientApp_Destroy(ClientApp** a_app)
     ClientController_Destroy(&(*a_app)->m_controller);
     free(*a_app);
     *a_app = NULL;
+    LOG_INFO("ClientApp destroyed");
 }
 
 /* Local string mapper for ClientResult. ClientController.h declares
