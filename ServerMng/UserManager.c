@@ -58,6 +58,7 @@ UserManagerResult UserManager_AddUser(UserManager* a_manager, const char* a_user
     {
         return USER_MANAGER_RESULT_NULL_PTR;
     }
+    return USER_MANAGER_RESULT_SUCCESS;
 }
 
 UserManagerResult UserManager_RemoveUser(UserManager* a_manager, const char* a_username)
@@ -66,6 +67,7 @@ UserManagerResult UserManager_RemoveUser(UserManager* a_manager, const char* a_u
     {
         return USER_MANAGER_RESULT_NULL_PTR;
     }
+    return USER_MANAGER_RESULT_SUCCESS;
 }
 
 const char*

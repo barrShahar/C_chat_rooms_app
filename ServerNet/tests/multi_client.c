@@ -113,6 +113,7 @@ static int ClientSayHello(int fd, int clientNumber)
     snprintf(message, sizeof(message), "Hello from Client %d", clientNumber);
 
     size_t msg_len = strlen(message);
+    LOG_DEBUG("Sending blocking message: %s", message);
     if (send(fd, message, msg_len, 0) < 0)
     {
         Die("send");

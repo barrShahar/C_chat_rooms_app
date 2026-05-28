@@ -49,12 +49,15 @@ ServerManager_Create(char* a_serverName, char* a_serverIp, uint16_t a_serverPort
     serverManager->m_groupManager = GroupManager_Create();
     if (serverManager->m_groupManager == NULL)
     {
+        UserManager_Destroy(&serverManager->m_userManager);
         free(serverManager);
         return NULL;
     }
     serverManager->m_tcpServerController = TcpServerController_Create(a_serverName, a_serverIp, a_serverPort);
     if (serverManager->m_tcpServerController == NULL)
     {
+        GroupManager_Destroy(&serverManager->m_groupManager);
+        UserManager_Destroy(&serverManager->m_userManager);
         free(serverManager);
         return NULL;
     }
@@ -130,13 +133,14 @@ ServerManagerCallbackRecv(void* a_context, const TcpConnectionRecord* a_record, 
     LOG_INFO("message from fd=%d ip=%s: %.*s", a_record->m_fdConnection, a_record->m_ip, (int)a_length, a_message);
 
     ChatMessage decodedMessage;
-    if (!DeserializeChatMessage(a_message, a_length, &decodedMessage))
+    if (DeserializeChatMessage(a_message, a_length, &decodedMessage) != CHAT_OK)
     {
         LOG_ERROR("Failed to deserialize message");
         ServerManager_SendOrLog(a_record, CHAT_ERR_MALFORMED, NULL, 0);
         return;
     }
 
+    LOG_DEBUG("Activate action: %s", decodedMessage.m_value);
     switch (decodedMessage.m_opcode)
     {
         case OPCODE_REGISTER:
@@ -216,7 +220,7 @@ ServerManager_SendMessage(const int a_fd, ChatStatus a_status, const char* a_mes
         return SERVER_RESULT_ALLOCATION_FAILED;
     }
 
-    int serialized_len = SerializeChatMessage(&encodedMessage, (uint8_t*)serializedMessage, buf_size);
+    int serialized_len = SerializeChatMessage(&encodedMessage, serializedMessage, buf_size);
     if (serialized_len < 0)
     {
         LOG_ERROR("ServerManager_SendMessage: failed to serialize message");

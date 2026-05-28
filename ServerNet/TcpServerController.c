@@ -204,19 +204,21 @@ TcpServerController_Display(TcpServerController* a_ctrl)
     return TCP_RESULT_SUCCESS;
 }
 
-void 
+void
 TcpServerController_Destroy(TcpServerController** a_ctrl)
 {
     if (a_ctrl == NULL || *a_ctrl == NULL)
     {
         return;
     }
+    LOG_DEBUG("Destroying server '%s'", (*a_ctrl)->m_name);
     TcpServerController* controller = *a_ctrl;
 
     /* Hold m_lock across the whole tear-down so that no concurrent
      * Start/Stop/SetCallbacks can sneak in while we are destroying
      * subobjects. We use StopUnlocked (not Stop) here because Stop
      * would recursively try to lock m_lock and we'd self-deadlock. */
+    LOG_DEBUG("Locking mutex for server '%s'", controller->m_name);
     pthread_mutex_lock(&controller->m_lock);
     StopUnlocked(controller);
     TcpConnectionAcceptor_Destroy(&controller->m_connectionAcceptor);
@@ -225,10 +227,14 @@ TcpServerController_Destroy(TcpServerController** a_ctrl)
 
     /* Safe to destroy the mutex now: workers are joined (via StopUnlocked
      * -> *_Stop -> pthread_join) and no other thread can be racing us. */
+    LOG_DEBUG("Destroying mutex for server '%s'", controller->m_name);
     pthread_mutex_destroy(&controller->m_lock);
+    LOG_DEBUG("Freeing name for server '%s'", controller->m_name);
     free(controller->m_name);
+    LOG_DEBUG("Freeing controller for server\n");
     free(controller);
     *a_ctrl = NULL;
+    LOG_DEBUG("Server destroyed");
 }
 
 TcpResult TcpServerController_Start(TcpServerController* a_ctrl)
@@ -377,6 +383,7 @@ TcpServerController_ProcessMessage(
     const char* a_message, size_t a_length)
 {
     if (a_controller == NULL || a_record == NULL || a_message == NULL) return TCP_RESULT_NULL_PTR;
+    LOG_DEBUG("Processing message from %s:%d (fd=%d)", a_record->m_ip, a_record->m_port, a_record->m_fdConnection);
     if (a_length == 0) return TCP_RESULT_INVALID_ARGUMENT;
 
     if (a_controller->m_callbackMessageReceived)
@@ -419,7 +426,7 @@ TcpServerController_SetCallbacks(TcpServerController* a_controller,
     {
         return TCP_RESULT_NULL_PTR;
     }
-
+    LOG_DEBUG("Setting callbacks for server '%s'", a_controller->m_name);
     pthread_mutex_lock(&a_controller->m_lock);
 
     /* Reject mutation while workers are running. This is the linchpin that

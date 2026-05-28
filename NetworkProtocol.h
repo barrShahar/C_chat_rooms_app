@@ -44,6 +44,7 @@ typedef enum {
     CHAT_ERR_NOT_LOGGED  = 7,
     CHAT_ERR_ALREADY_LOG = 8,
     CHAT_ERR_MALFORMED   = 9,
+    CHAT_ERR_NULL_PTR    = 10,
 } ChatStatus;
 
 typedef struct {
@@ -68,8 +69,16 @@ static inline ChatStatus Chat_Validate(size_t buf_size, size_t value_len);
 
 static inline ChatStatus DeserializeChatMessage(const char* serialized_chat_message_buf, size_t serialized_chat_message_buf_size, ChatMessage* out_deserialized_message)
 {
-    if (serialized_chat_message_buf == NULL || out_deserialized_message == NULL) return false;
-    if (serialized_chat_message_buf_size < CHAT_HEADER_SIZE) return false;
+    if (serialized_chat_message_buf == NULL || out_deserialized_message == NULL)
+    {
+        LOG_ERROR("DeserializeChatMessage: NULL pointer");
+        return CHAT_ERR_NULL_PTR;
+    }
+    if (serialized_chat_message_buf_size < CHAT_HEADER_SIZE)
+    {
+        LOG_ERROR("DeserializeChatMessage: serialized_chat_message_buf_size is too small");
+        return CHAT_ERR_MALFORMED;
+    }
 
     MessageOpcode opcode    = Chat_GetOpcode(serialized_chat_message_buf);
     uint16_t      value_len = Chat_GetLength((const char *)serialized_chat_message_buf);
@@ -86,7 +95,7 @@ static inline ChatStatus DeserializeChatMessage(const char* serialized_chat_mess
     
 
     LOG_DEBUG("DeserializeChatMessage: deserialized message: %s", out_deserialized_message->m_value);
-    return true;
+    return CHAT_OK;
 }
 
 /* Returns total bytes written, or -1 if buf is too small. */
@@ -119,7 +128,7 @@ static inline int SerializeChatMessage(const ChatMessage* a_messageToSerialize, 
 
 static inline MessageOpcode Chat_GetOpcode(const char* buf)
 {
-    return (MessageOpcode)buf[0];
+    return (MessageOpcode)(uint8_t)buf[0];
 }
 
 static inline uint16_t Chat_GetLength(const char* buf)

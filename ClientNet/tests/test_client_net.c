@@ -9,8 +9,8 @@ void TestRegisterProcess(ClientController* a_clientController)
     char* name = "test_user_register";
     char* password = "test_password";
 
-    uint8_t valueBuffer[CONF_RECV_BUF_SIZE];
-    uint8_t messageBuffer[CONF_RECV_BUF_SIZE];
+    char valueBuffer[CONF_RECV_BUF_SIZE];
+    char messageBuffer[CONF_RECV_BUF_SIZE];
 
     ChatMessage message;
     message.m_opcode = OPCODE_REGISTER;
@@ -19,7 +19,7 @@ void TestRegisterProcess(ClientController* a_clientController)
     
 
     strcpy((char*)valueBuffer, name);
-    strcpy((char*)valueBuffer + strlen(name), password);
+    strcpy((char*)valueBuffer + strlen(name) + 1, password);
 
     strcpy((char*)message.m_value, (char*)valueBuffer);
 
