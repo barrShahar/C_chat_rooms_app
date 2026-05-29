@@ -160,12 +160,12 @@ size_t ListIsEmpty(List* _list);
 ListItr ListItrForEach(ListItr _begin, ListItr _end, ListActionFunction _action, void* _context);
 
 /**
- * @brief 
+ * @brief Find the first element in the list that matches the target
  * 
- * @param _list 
- * @param _toFind 
- * @param Compare 
- * @return ListItr 
+ * @param _list : A previously created List ADT returned via ListCreate
+ * @param _target : The target to find
+ * @param Compare : A function pointer to be used to compare the target with the current item
+ * @return ListItr : An iterator pointing at the first element that matches the target or NULL if not found
  */
 ListItr ListFind(List* _list, const void* _target, int (*Compare)(const void* _target, const void* _currItem));
 

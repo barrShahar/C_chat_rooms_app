@@ -1,5 +1,5 @@
 #pragma once
-
+#include "Vector.h"
 typedef enum UserState
 {
     USER_STATE_OFFLINE = 0,
@@ -12,6 +12,7 @@ typedef struct User
     char* m_username;
     char* m_password;
     UserState m_state;
+    Vector* m_groups;
 } User;
 
 User* User_Create(const int a_fdConnection, const char* a_username, const char* a_password);

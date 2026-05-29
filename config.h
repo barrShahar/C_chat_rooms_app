@@ -2,3 +2,20 @@
 #define CONF_SERVER_IP "127.0.0.1"
 #define CONF_SERVER_PORT 8080
 #define CONF_SERVER_NAME "Chat rooms server"
+
+// GroupManager
+#define CONF_GROUP_MANAGER_HASH_MAP_SIZE 10
+#define CONF_GROUP_MANAGER_MAX_NAME_LENGTH 32
+
+// UserManager
+#define CONF_USER_MANAGER_HASH_MAP_SIZE 10
+#define CONF_USER_VECTOR_INITIAL_CAPACITY 10
+#define CONF_USER_VECTOR_BLOCK_SIZE 2
+
+/* Multicast endpoint allocation for groups.
+ * IPs are taken from the administratively scoped block 239.0.0.0/8.
+ * Ports are allocated sequentially in [BASE, BASE + MAX_GROUPS).
+ */
+#define CONF_MULTICAST_BASE_IP   "239.0.0.1"
+#define CONF_MULTICAST_PORT_BASE 5000
+#define CONF_MULTICAST_MAX_GROUPS 1000

@@ -29,3 +29,4 @@ ServerNet/.cache/
 *.json
 *.patch
 .gitignore
+.clang-format

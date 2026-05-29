@@ -89,7 +89,7 @@ ServerManager_Create(char* a_serverName, char* a_serverIp, uint16_t a_serverPort
         free(serverManager);
         return NULL;
     }
-    serverManager->m_groupManager = GroupManager_Create();
+    serverManager->m_groupManager = GroupManager_Create(ServerManagerHashFunctionDJB2, ServerManagerEqualFunction);
     if (serverManager->m_groupManager == NULL)
     {
         UserManager_Destroy(&serverManager->m_userManager);
@@ -165,8 +165,16 @@ ServerManagerCallbackNewConnection(void* a_context, const TcpConnectionRecord* a
 static void
 ServerManagerCallbackDisconnect(void* a_context, const TcpConnectionRecord* a_record)
 {
-    (void)a_context;
-    LOG_INFO("Disconnection from %s:%d", a_record->m_ip, a_record->m_port);
+    ServerManager* manager = (ServerManager*)a_context;
+    char* loggedOutUsername = NULL;
+    UserManagerResult removeUserResult =
+        UserManager_Logout(manager->m_userManager, a_record->m_fdConnection, &loggedOutUsername);
+    LOG_INFO("Disconnection from %s:%d, username: %s, result: %s",
+             a_record->m_ip,
+             a_record->m_port,
+             loggedOutUsername != NULL ? loggedOutUsername : "(none)",
+             UserManagerResult_toString(removeUserResult));
+    free(loggedOutUsername);
 }
 
 static void
@@ -203,8 +211,8 @@ static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConn
     UserManagerResult addUserResult = UserManager_AddUser(a_manager->m_userManager, a_record->m_fdConnection, username, password);
     if (addUserResult != USER_MANAGER_RESULT_SUCCESS)
     {
-        LOG_ERROR("(TODO: Handle this error) Failed to add user: %s", UserManagerResult_ToString(addUserResult));
-        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_ToString(addUserResult), a_message->m_length);
+        LOG_ERROR("(TODO: Handle this error) Failed to add user: %s", UserManagerResult_toString(addUserResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_toString(addUserResult), a_message->m_length);
     }
     ServerManager_SendOrLog(a_record, CHAT_OK, "User added", sizeof("User added"));
 }
@@ -217,17 +225,42 @@ static void ActionNotImplemented(const TcpConnectionRecord* a_record, const char
 
 static void ServerManager_ActionLogin(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
-    (void)a_manager; (void)a_message;
-    ActionNotImplemented(a_record, "login");
+    const char* username = (const char*)a_message->m_value;
+    const char* password = username + strlen(username) + 1;
+    UserManagerResult loginResult = UserManager_Login(a_manager->m_userManager, a_record->m_fdConnection, username, password);
+    if (loginResult != USER_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to login: %s", UserManagerResult_toString(loginResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_toString(loginResult), a_message->m_length);
+        return;
+    }
+    LOG_INFO("Login successful for user: %s", username);
+    ServerManager_SendOrLog(a_record, CHAT_OK, "Login successful", sizeof("Login successful"));
+    return;
 }
 
-static void ServerManager_ActionLogout(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+static void 
+ServerManager_ActionLogout(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
-    (void)a_manager; (void)a_message;
-    ActionNotImplemented(a_record, "logout");
+
+    LOG_DEBUG("Logging out user: %d", a_record->m_fdConnection);
+    char* username;
+    UserManagerResult logoutResult = UserManager_Logout(a_manager->m_userManager, a_record->m_fdConnection, &username);
+    if (logoutResult != USER_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to logout: %s", UserManagerResult_toString(logoutResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_toString(logoutResult), a_message->m_length);
+        return;
+    }
+    username = username == NULL ? strdup(a_record->m_ip): username;
+    LOG_INFO("Logout successful for user: %s", username);
+    ServerManager_SendOrLog(a_record, CHAT_OK, "Logout successful", sizeof("Logout successful"));
+    free(username);
+    return;
 }
 
-static void ServerManager_ActionExit(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+static void 
+ServerManager_ActionExit(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
     (void)a_manager; (void)a_message;
     ActionNotImplemented(a_record, "exit");
@@ -235,8 +268,15 @@ static void ServerManager_ActionExit(ServerManager* a_manager, const TcpConnecti
 
 static void ServerManager_ActionCreateGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
-    (void)a_manager; (void)a_message;
-    ActionNotImplemented(a_record, "create_group");
+    char* groupName = (char*)a_message->m_value;
+    GroupManagerResult addGroupResult = GroupManager_AddGroup(a_manager->m_groupManager, groupName);
+    if (addGroupResult != GROUP_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to add group: %s", GroupManagerResult_toString(addGroupResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, GroupManagerResult_toString(addGroupResult), a_message->m_length);
+        return;
+    }
+    ServerManager_SendOrLog(a_record, CHAT_OK, "Group created", sizeof("Group created"));
 }
 
 static void ServerManager_ActionJoinGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
@@ -259,8 +299,26 @@ static void ServerManager_ActionListUsers(ServerManager* a_manager, const TcpCon
 
 static void ServerManager_ActionListGroups(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
-    (void)a_manager; (void)a_message;
-    ActionNotImplemented(a_record, "list_groups");
+    (void)a_message;
+
+    /* GroupManager_FormatGroupList truncates to fit the buffer, so a wire-sized
+     * buffer is always safe and never exceeds CHAT_MAX_VALUE. This also handles
+     * the empty-list case (no groups -> empty string). */
+    char bufferGroupNames[CHAT_MAX_VALUE];
+    GroupManagerResult formatResult = GroupManager_FormatGroupList(
+        a_manager->m_groupManager, bufferGroupNames, sizeof(bufferGroupNames));
+    if (formatResult != GROUP_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to format group list");
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC,
+            "Failed to list groups", sizeof("Failed to list groups"));
+        return;
+    }
+
+    /* Send the actual string length (including the null terminator), not the
+     * buffer capacity, so the client renders exactly the names produced. */
+    ServerManager_SendOrLog(a_record, CHAT_OK,
+        bufferGroupNames, strlen(bufferGroupNames) + 1);
 }
 
 const char*

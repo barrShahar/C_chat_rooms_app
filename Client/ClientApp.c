@@ -12,6 +12,8 @@ struct ClientApp
 {
     ClientController* m_controller;
     SessionState      m_state;
+    char*             m_username;
+    char*             m_password;
     char              m_ip[32];
     uint16_t          m_port;
 };
@@ -34,6 +36,8 @@ ClientApp* ClientApp_Create(const char* a_ip, uint16_t a_port)
     app->m_state = SESSION_DISCONNECTED;
     strcpy(app->m_ip, a_ip);
     app->m_port = a_port;
+    app->m_username = NULL;
+    app->m_password = NULL;
     LOG_INFO("ClientApp created");
     return app;
 }
@@ -245,7 +249,12 @@ static void HandleCredentialedAction(ClientApp* a_app, MessageOpcode a_opcode,
         return;
     }
     PrintResponse(&resp);
-    if (resp.m_status == CHAT_OK) a_app->m_state = a_stateOnOk;
+    if (resp.m_status == CHAT_OK)
+    {
+        a_app->m_username = strdup(name);
+        a_app->m_password = strdup(password);
+        a_app->m_state = a_stateOnOk;
+    }
 }
 
 static void HandleGroupAction(ClientApp* a_app, MessageOpcode a_opcode)
@@ -281,6 +290,7 @@ static void HandleLogout(ClientApp* a_app)
     ChatMessage req = {0};
     req.m_opcode = OPCODE_LOGOUT;
     req.m_status = CHAT_OK;
+    memcpy(req.m_value, a_app->m_username, strlen(a_app->m_username) + 1);
     req.m_length = 0;
 
     ChatMessage resp;

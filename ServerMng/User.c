@@ -34,10 +34,15 @@ void User_Destroy(User** a_user)
         return;
     }
 
+    if ((*a_user)->m_groups != NULL)
+    {
+        VectorDestroy(&(*a_user)->m_groups, free);
+    }
     free((*a_user)->m_username);
     free((*a_user)->m_password);
     free(*a_user);
     *a_user = NULL;
+    
     LOG_INFO("User destroyed");
 }
 

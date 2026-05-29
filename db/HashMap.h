@@ -84,8 +84,8 @@ MapResult HashMap_Insert(HashMap* _map, const void* _key, const void* _value);
  * @brief Remove a key-value pair from the hash map.
  * @param[in] _map - Hash map to remove pair from, must be initialized
  * @param[in] _key - key to serve as index to locate _value
- * @param[in] _pKey  - pointer to variable to recieve key from map if found
- * @param[in] _pValue - pointer to variable that will get the value if found.
+ * @param[in] _pKey  - null or pointer to variable to recieve key from map if found
+ * @param[in] _pValue - null or pointer to variable that will get the value if found.
  * @return Success indicator
  * @retval  MAP_SUCCESS	on success
  * @retval  MAP_KEY_NULL_ERROR
@@ -101,7 +101,7 @@ MapResult HashMap_Remove(HashMap* _map, const void* _searchKey, void** _pKey, vo
  * @brief Find a value by key
  * @param[in] _map - Hash map to remove pair from, must be initialized
  * @param[in] _key - key to serve as index 
- * @param[in] _pValue - pointer to variable that will get the value if found.
+ * @param[in] _pValue - NULL or pointer to variable that will get the value if found.
  * @return Success indicator
  * @retval  MAP_SUCCESS	on success
  * @retval  MAP_KEY_NULL_ERROR

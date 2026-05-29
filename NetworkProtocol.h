@@ -50,6 +50,7 @@ typedef enum {
     CHAT_ERR_ALREADY_LOG = 8,
     CHAT_ERR_MALFORMED   = 9,
     CHAT_ERR_NULL_PTR    = 10,
+    CHAT_ERR_ALLOCATION_FAILED = 11,
 } ChatStatus;
 
 typedef struct {
@@ -99,7 +100,6 @@ static inline ChatStatus DeserializeChatMessage(const char* serialized_chat_mess
     memcpy(out_deserialized_message->m_value, serialized_chat_message_buf + CHAT_HEADER_SIZE, value_len);
     
 
-    LOG_DEBUG("DeserializeChatMessage: deserialized message: %s", out_deserialized_message->m_value);
     return CHAT_OK;
 }
 
