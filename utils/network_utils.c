@@ -31,8 +31,8 @@ uint32_t network_convert_ip_p_to_n(const char *a_ip_addr)
     if (a_ip_addr == NULL) { return 0; }
 
     uint32_t binary_prefix = 0;
+    /* inet_pton already writes the address in network byte order. */
     inet_pton(AF_INET, a_ip_addr, &binary_prefix);
-    binary_prefix = htonl(binary_prefix);
     return binary_prefix;
 }
 

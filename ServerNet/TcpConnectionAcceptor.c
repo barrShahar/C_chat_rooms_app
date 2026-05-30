@@ -104,11 +104,9 @@ TcpConnectionAcceptor* TcpConnectionAcceptor_Create(TcpServerController* a_tcpCt
     // 3. Prepare the address struct and Bind
     struct sockaddr_in addr = {0};
     addr.sin_family      = AF_INET;
-    /* GetIp returns the project convention (e.g. 0x7F000001 for 127.0.0.1).
-     * sin_addr.s_addr must be in network byte order for bind(); on little-
-     * endian hosts that requires htonl(). Without it, 127.0.0.1 becomes
-     * 1.0.0.127 and bind() fails with EADDRNOTAVAIL. */
-    addr.sin_addr.s_addr = htonl(TcpServerController_GetIp(a_tcpCtrl));
+    /* GetIp returns the address already in network byte order (as bind()
+     * requires for sin_addr.s_addr), so it is used directly. */
+    addr.sin_addr.s_addr = TcpServerController_GetIp(a_tcpCtrl);
     addr.sin_port        = htons(TcpServerController_GetPort(a_tcpCtrl));
 
     if (bind(acceptor->m_listenFd, (struct sockaddr *)&addr, sizeof(addr)) < 0)

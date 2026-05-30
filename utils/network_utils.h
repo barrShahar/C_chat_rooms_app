@@ -4,7 +4,8 @@
 #include <stdbool.h>
 /**
  * Converts a uint32_t IP address into a dotted-decimal string (A.B.C.D).
- * @param a_ip_addr The 32-bit IP address in host byte order (big-endian); 
+ * @param a_ip_addr The 32-bit IP address in network byte order (as stored in
+ *                  struct in_addr / returned by network_convert_ip_p_to_n);
  * @param a_output_buffer Pointer to a user-provided buffer, NULL is not allowed!
  * @return Pointer to the resulting string.
  */

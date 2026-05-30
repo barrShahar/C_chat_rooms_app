@@ -45,7 +45,9 @@ static void test_basic_conversion(void)
 {
     char buf[INET_ADDRSTRLEN];
 
-    SOFT_ASSERT(strcmp(network_convert_ip_n_to_p(0xC0A80101, buf), "192.168.1.1")     == 0);
+    /* Input is network byte order (as in struct in_addr); htonl() makes the
+     * expectation endian-portable. 0.0.0.0 / 255.255.255.255 are symmetric. */
+    SOFT_ASSERT(strcmp(network_convert_ip_n_to_p(htonl(0xC0A80101), buf), "192.168.1.1")     == 0);
     SOFT_ASSERT(strcmp(network_convert_ip_n_to_p(0x00000000, buf), "0.0.0.0")         == 0);
     SOFT_ASSERT(strcmp(network_convert_ip_n_to_p(0xFFFFFFFF, buf), "255.255.255.255") == 0);
 }
@@ -67,7 +69,8 @@ static void test_assert_on_null_buffer(void)
 
 static void test_convert_ip_p_to_n(void)
 {
-    SOFT_ASSERT(network_convert_ip_p_to_n("192.168.1.1") == 0xC0A80101);
+    /* p_to_n returns network byte order; htonl() keeps the check endian-portable. */
+    SOFT_ASSERT(network_convert_ip_p_to_n("192.168.1.1") == htonl(0xC0A80101));
     SOFT_ASSERT(network_convert_ip_p_to_n("0.0.0.0") == 0x00000000);
     SOFT_ASSERT(network_convert_ip_p_to_n("255.255.255.255") == 0xFFFFFFFF);
 }

@@ -31,7 +31,7 @@ ClientController* ClientController_Create(const char* a_ip, uint16_t a_port)
         return NULL;
     }
     controller->m_fd = -1;
-    controller->m_ip = htonl(network_convert_ip_p_to_n(a_ip));
+    controller->m_ip = network_convert_ip_p_to_n(a_ip);
     controller->m_port = a_port;
     controller->m_state = CLIENT_STATE_STOPPED;
     return controller;
