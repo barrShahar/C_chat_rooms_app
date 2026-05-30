@@ -11,6 +11,7 @@
 #define CONF_USER_MANAGER_HASH_MAP_SIZE 10
 #define CONF_USER_VECTOR_INITIAL_CAPACITY 10
 #define CONF_USER_VECTOR_BLOCK_SIZE 2
+#define CONF_USER_GROUPS_LINE_BUF_SIZE 256
 
 /* Multicast endpoint allocation for groups.
  * IPs are taken from the administratively scoped block 239.0.0.0/8.

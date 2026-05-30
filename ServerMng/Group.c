@@ -106,7 +106,7 @@ Group_IncRef(Group* a_group)
         LOG_ERROR("Tried to increment ref count of group that is NULL");
         return 0;
     }
-    a_group->m_refCount++;
+    a_group->m_refCount += 1;
     return a_group->m_refCount;
 }
 

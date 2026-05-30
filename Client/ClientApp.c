@@ -87,8 +87,8 @@ static const char* StatusToString(ChatStatus a_status)
         case CHAT_ERR_NOT_FOUND:   return "Not found";
         case CHAT_ERR_ALREADY_IN:  return "Already in group";
         case CHAT_ERR_NOT_IN:      return "Not in group";
-        case CHAT_ERR_NOT_LOGGED:  return "Not logged in";
-        case CHAT_ERR_ALREADY_LOG: return "Already logged in";
+        case CHAT_ERR_NOT_LOGGED_IN:  return "Not logged in";
+        case CHAT_ERR_ALREADY_LOGGED_IN: return "Already logged in";
         case CHAT_ERR_MALFORMED:   return "Malformed message";
         case CHAT_ERR_NULL_PTR:    return "Null pointer";
         default:                   return "Unknown";

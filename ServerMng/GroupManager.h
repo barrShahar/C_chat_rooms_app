@@ -11,19 +11,21 @@
 typedef struct GroupManager GroupManager;
 
 /* ========================================================================== */
-/* 1. THE MASTER TABLE (Notice the '(_)' at the top and the '_' below)         */
+/* 1. THE MASTER TABLE       */
 /* ========================================================================== */
 #define GROUP_MANAGER_RESULT_TABLE(_) \
     _(GROUP_MANAGER_RESULT_SUCCESS, = 0) \
     _(GROUP_MANAGER_RESULT_NULL_PTR, ) \
     _(GROUP_MANAGER_RESULT_NAME_TAKEN, ) \
+    _(GROUP_MANAGER_RESULT_NAME_TOO_LONG, ) \
     _(GROUP_MANAGER_RESULT_ALLOCATION_FAILED, ) \
     _(GROUP_MANAGER_RESULT_NOT_FOUND, ) \
+    _(GROUP_MANAGER_RESULT_EMPTY_GROUP, ) \
     _(GROUP_MANAGER_RESULT_NOT_EMPTY, ) \
     _(GROUP_MANAGER_RESULT_INTERNAL_ERROR, )
 
 /* ========================================================================== */
-/* 2. AUTOMATIC GENERATION (Do not put semicolons at the end)               */
+/* 2. AUTOMATIC GENERATION                */
 /* ========================================================================== */
 DEFINE_ENUM(GroupManagerResult, GROUP_MANAGER_RESULT_TABLE)
 DEFINE_ENUM_TO_STRING(GroupManagerResult, GROUP_MANAGER_RESULT_TABLE)
@@ -73,5 +75,9 @@ GroupManagerResult GroupManager_FormatGroupList(GroupManager* a_manager,
                                                 size_t a_bufSize);
 
 size_t GroupManager_GetGroupsCount(const GroupManager* a_manager);
+
+GroupManagerResult GroupManager_IncreaseGroupRefCount(GroupManager* a_manager, const char* a_name, size_t* a_outRefCount);
+GroupManagerResult GroupManager_DecreaseGroupRefCount(GroupManager* a_manager, const char* a_name, size_t* a_outRefCount);
+
 
 #endif /* __GROUP_MANAGER_H__ */

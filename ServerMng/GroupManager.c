@@ -109,6 +109,13 @@ GroupManager_AddGroup(GroupManager* a_manager, const char* a_name)
         LOG_ERROR("Group manager or name is NULL");
         return GROUP_MANAGER_RESULT_NULL_PTR;
     }
+    if (strlen(a_name) > CONF_GROUP_MANAGER_MAX_NAME_LENGTH)
+    {
+        LOG_ERROR("Group name is too long");
+        return GROUP_MANAGER_RESULT_NAME_TOO_LONG;
+    }
+
+    // Check if group name is already taken
     if (GroupManager_IsNameTaken(a_manager, a_name))
     {
         LOG_ERROR("Group name is already taken");
@@ -262,3 +269,70 @@ GroupManager_GetGroupsCount(const GroupManager* a_manager)
     
     return HashMap_Size(a_manager->m_groups);
 }
+
+GroupManagerResult 
+GroupManager_IncreaseGroupRefCount(GroupManager* a_manager, const char* a_name, size_t* a_outRefCount)
+{
+    
+    if (a_manager == NULL || a_name == NULL)
+    {
+        return GROUP_MANAGER_RESULT_NULL_PTR;
+    }
+
+    Group* group = NULL;
+    GroupManager_GetGroup(a_manager, a_name, &group);
+    if (group == NULL)
+    {
+        LOG_ERROR("Group not found");
+        return GROUP_MANAGER_RESULT_NOT_FOUND;
+    }
+    size_t newRefCount = Group_IncRef(group);
+    if (a_outRefCount != NULL)
+    {
+        *a_outRefCount = newRefCount;
+    }
+    return GROUP_MANAGER_RESULT_SUCCESS;
+}
+
+GroupManagerResult 
+GroupManager_DecreaseGroupRefCount(GroupManager* a_manager, const char* a_name, size_t* a_outRefCount)
+{
+    // 1. parameters check
+    if (a_manager == NULL || a_name == NULL)
+    {
+        return GROUP_MANAGER_RESULT_NULL_PTR;
+    }
+
+    if (a_outRefCount != NULL)
+    {
+        *a_outRefCount = 0;
+    }
+
+    // 2. get group by name
+    Group* group = NULL;
+    GroupManager_GetGroup(a_manager, a_name, &group);
+    if (group == NULL)
+    {
+        LOG_ERROR("Group not found");
+        return GROUP_MANAGER_RESULT_NOT_FOUND;
+    }
+
+    // 3. Check if group is empty before decrementing ref count
+    if (Group_GetRefCount(group) == 0)
+    {
+        return GROUP_MANAGER_RESULT_EMPTY_GROUP;
+    }
+
+    // 4. Decrease group ref count
+    size_t newRefCount = Group_DecRef(group);
+    if (newRefCount == 0)
+    {
+        LOG_INFO("Group %s ref count is 0", a_name);
+    }
+    if (a_outRefCount != NULL)
+    {
+        *a_outRefCount = newRefCount;
+    }
+    return GROUP_MANAGER_RESULT_SUCCESS;
+}
+

@@ -16,10 +16,11 @@
 #define LOG_LEVEL LOG_LEVEL_DEBUG
 #endif
 
-#define LOG_COLOR_DEBUG  "\033[36m"   /* cyan */
-#define LOG_COLOR_INFO   "\033[32m"   /* green */
-#define LOG_COLOR_WARN   "\033[33m"   /* yellow */
-#define LOG_COLOR_ERROR  "\033[31m"   /* red */
+#define LOG_COLOR_DEBUG  "\033[36m"          /* cyan */
+#define LOG_COLOR_INFO   "\033[32m"          /* green */
+#define LOG_COLOR_WARN   "\033[33m"          /* yellow */
+#define LOG_COLOR_ERROR  "\033[31m"          /* red */
+#define LOG_COLOR_ASSERT "\033[1;5;97;41m"   /* bold + blink + bright white on red bg */
 #define LOG_COLOR_RESET  "\033[0m"
 
 #define LOG_WRITE(color, level_str, fmt, ...) \
@@ -57,5 +58,17 @@
 #else
 #define LOG_ERROR(fmt, ...) do {} while (0)
 #endif
+
+/* Soft assert: condition that must NEVER be false (a "should be impossible" bug).
+ * On failure, prints a very loud banner and continues execution.
+ * Caller is responsible for any error handling / early return.
+ */
+#define SOFT_ASSERT(cond) \
+    do { \
+        if (!(cond)) { \
+            LOG_WRITE(LOG_COLOR_ASSERT, "BUG!!", \
+                      ">>>>> SOFT ASSERT FAILED: ( %s ) <<<<<", #cond); \
+        } \
+    } while (0)
 
 #endif /* LOGGER_H */

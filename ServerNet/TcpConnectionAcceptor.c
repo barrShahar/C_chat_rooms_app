@@ -94,12 +94,12 @@ TcpConnectionAcceptor* TcpConnectionAcceptor_Create(TcpServerController* a_tcpCt
     }
 
     // 2.1 
-    if (setsockopt(acceptor->m_listenFd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0)
-    {
-        close(acceptor->m_listenFd);
-        free(acceptor);
-        return NULL;
-    }
+    // if (setsockopt(acceptor->m_listenFd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0)
+    // {
+    //     close(acceptor->m_listenFd);
+    //     free(acceptor);
+    //     return NULL;
+    // }
     
     // 3. Prepare the address struct and Bind
     struct sockaddr_in addr = {0};

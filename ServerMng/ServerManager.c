@@ -9,6 +9,7 @@
 #include "logger.h"
 #include "config.h"
 #include "NetworkProtocol.h"
+#include "User.h"
 
 struct ServerManager
 {
@@ -23,6 +24,7 @@ static void ServerManagerCallbackDisconnect(void* a_context, const TcpConnection
 static void ServerManagerCallbackRecv(void* a_context, const TcpConnectionRecord* a_record, const char* a_message, size_t a_length);
 static ServerResult ServerManager_SendMessage(const int a_fd, ChatStatus a_status, const char* a_message, size_t a_length);
 static void ServerManager_SendOrLog(const TcpConnectionRecord* a_record, ChatStatus a_status, const char* a_message, size_t a_length);
+static void ServerManager_LeaveAllGroups(ServerManager* a_manager, int a_fdConnection);
 
 static size_t ServerManagerHashFunctionDJB2(const void* a_key);
 static int ServerManagerEqualFunction(const void* a_firstKey, const void* a_secondKey);
@@ -212,9 +214,10 @@ static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConn
     if (addUserResult != USER_MANAGER_RESULT_SUCCESS)
     {
         LOG_ERROR("(TODO: Handle this error) Failed to add user: %s", UserManagerResult_toString(addUserResult));
-        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_toString(addUserResult), a_message->m_length);
+        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_toString(addUserResult), strlen(UserManagerResult_toString(addUserResult)) + 1);
+        return;
     }
-    ServerManager_SendOrLog(a_record, CHAT_OK, "User added", sizeof("User added"));
+    ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
 }
 
 static void ActionNotImplemented(const TcpConnectionRecord* a_record, const char* a_name)
@@ -228,6 +231,12 @@ static void ServerManager_ActionLogin(ServerManager* a_manager, const TcpConnect
     const char* username = (const char*)a_message->m_value;
     const char* password = username + strlen(username) + 1;
     UserManagerResult loginResult = UserManager_Login(a_manager->m_userManager, a_record->m_fdConnection, username, password);
+    if (loginResult == USER_MANAGER_RESULT_ALREADY_LOG)
+    {
+        LOG_ERROR("User already logged in: %s", username);
+        ServerManager_SendOrLog(a_record, CHAT_ERR_ALREADY_LOGGED_IN, NULL, 0);
+        return;
+    }
     if (loginResult != USER_MANAGER_RESULT_SUCCESS)
     {
         LOG_ERROR("Failed to login: %s", UserManagerResult_toString(loginResult));
@@ -244,14 +253,55 @@ ServerManager_ActionLogout(ServerManager* a_manager, const TcpConnectionRecord* 
 {
 
     LOG_DEBUG("Logging out user: %d", a_record->m_fdConnection);
-    char* username;
+
+    // Validate user is logged in
+    bool isLoggedIn = false;
+    UserManager_IsUserLoggedIn(a_manager->m_userManager, NULL, a_record->m_fdConnection, &isLoggedIn);
+    if (isLoggedIn == false)
+    {
+        SOFT_ASSERT(false);
+        ServerManager_SendOrLog(a_record, CHAT_ERR_NOT_LOGGED_IN, NULL, 0);
+        return;
+    }
+
+    // 1. get user group count
+    size_t userGroupCount = 0;
+    UserManager_GetUserGroupCount(a_manager->m_userManager, a_record->m_fdConnection, &userGroupCount);
+    
+    // 2. if user is in groups, decrease group ref count and remove group if empty
+    if (userGroupCount > 0)
+    {
+        char* userGroups[userGroupCount];
+        size_t numberOfGroupsWritten = 0;
+        UserManager_GetUserGroups(a_manager->m_userManager, 
+            a_record->m_fdConnection, 
+            (const char**)userGroups, 
+            userGroupCount, 
+            &numberOfGroupsWritten);
+        
+        SOFT_ASSERT(numberOfGroupsWritten == userGroupCount);
+        // Exit groups
+        for (size_t i = 0; i < userGroupCount; i++)
+        {
+            GroupManager_DecreaseGroupRefCount(a_manager->m_groupManager, userGroups[i], NULL);
+            GroupManagerResult removeResult = GroupManager_RemoveGroupIfEmpty(a_manager->m_groupManager, userGroups[i]);
+            if (removeResult == GROUP_MANAGER_RESULT_SUCCESS)
+            {
+                LOG_INFO("Group %s removed", userGroups[i]);
+            }
+        }
+    }
+
+    // 3. logout user
+    char* username; // for logging
     UserManagerResult logoutResult = UserManager_Logout(a_manager->m_userManager, a_record->m_fdConnection, &username);
     if (logoutResult != USER_MANAGER_RESULT_SUCCESS)
     {
-        LOG_ERROR("Failed to logout: %s", UserManagerResult_toString(logoutResult));
-        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_toString(logoutResult), a_message->m_length);
+        SOFT_ASSERT(false);
+        ServerManager_SendOrLog(a_record, CHAT_ERR_BAD_CREDS, UserManagerResult_toString(logoutResult), strlen(UserManagerResult_toString(logoutResult))+1);
         return;
     }
+
     username = username == NULL ? strdup(a_record->m_ip): username;
     LOG_INFO("Logout successful for user: %s", username);
     ServerManager_SendOrLog(a_record, CHAT_OK, "Logout successful", sizeof("Logout successful"));
@@ -266,35 +316,173 @@ ServerManager_ActionExit(ServerManager* a_manager, const TcpConnectionRecord* a_
     ActionNotImplemented(a_record, "exit");
 }
 
+
 static void ServerManager_ActionCreateGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
+    // Create group
     char* groupName = (char*)a_message->m_value;
     GroupManagerResult addGroupResult = GroupManager_AddGroup(a_manager->m_groupManager, groupName);
     if (addGroupResult != GROUP_MANAGER_RESULT_SUCCESS)
     {
         LOG_ERROR("Failed to add group: %s", GroupManagerResult_toString(addGroupResult));
-        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, GroupManagerResult_toString(addGroupResult), a_message->m_length);
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, GroupManagerResult_toString(addGroupResult), strlen(GroupManagerResult_toString(addGroupResult)));
         return;
     }
-    ServerManager_SendOrLog(a_record, CHAT_OK, "Group created", sizeof("Group created"));
+    // Add group name to the user who created it
+    UserManagerResult result = UserManager_AddUserToGroup(a_manager->m_userManager, a_record->m_fdConnection, groupName);
+    if (result != USER_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to add group to user: %s", UserManagerResult_toString(result));
+        GroupManagerResult removeGroupResult = GroupManager_RemoveGroupIfEmpty(a_manager->m_groupManager, groupName);
+        if (removeGroupResult != GROUP_MANAGER_RESULT_SUCCESS)
+        {
+            LOG_ERROR("Failed to remove an emptygroup: %s", GroupManagerResult_toString(removeGroupResult));
+        }
+        // Send error message to the user
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, UserManagerResult_toString(result), strlen(UserManagerResult_toString(result)) + 1);
+        // Remove group from the group manager
+        GroupManager_RemoveGroupIfEmpty(a_manager->m_groupManager, groupName);
+        return;
+    }
+
+    // Increase group ref count
+    GroupManager_IncreaseGroupRefCount(a_manager->m_groupManager, groupName, NULL);
+    LOG_INFO("Group created: %s", groupName);
+    ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
 }
 
 static void ServerManager_ActionJoinGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
-    (void)a_manager; (void)a_message;
-    ActionNotImplemented(a_record, "join_group");
+    char* groupName = (char*)a_message->m_value;
+    // 1. Get group by name
+    Group* group = NULL;
+    GroupManagerResult getGroupResult = GroupManager_GetGroup(a_manager->m_groupManager, groupName, &group);
+    if (getGroupResult != GROUP_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to get group: %s", GroupManagerResult_toString(getGroupResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, GroupManagerResult_toString(getGroupResult), strlen(GroupManagerResult_toString(getGroupResult)) + 1);
+        return;
+    }
+    // 2. Check if user exist and log in
+    bool isLoggedIn;
+    UserManager_IsUserLoggedIn(a_manager->m_userManager, NULL, a_record->m_fdConnection, &isLoggedIn);
+    if (isLoggedIn == false)
+    {
+        LOG_ERROR("User is not logged in");
+        ServerManager_SendOrLog(a_record, CHAT_ERR_NOT_LOGGED_IN, NULL, 0);
+        return;
+    }
+    // 3. Add Group to User's groups
+    UserManagerResult result =
+        UserManager_AddUserToGroup(a_manager->m_userManager, a_record->m_fdConnection, groupName);
+    
+    if (result == USER_MANAGER_RESULT_SUCCESS)
+    {
+        GroupManagerResult incResult =
+            GroupManager_IncreaseGroupRefCount(a_manager->m_groupManager, groupName, NULL);
+        if (incResult != GROUP_MANAGER_RESULT_SUCCESS)
+        {
+            LOG_ERROR("Failed to increase group ref count: %s", GroupManagerResult_toString(incResult));
+            ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, GroupManagerResult_toString(incResult),
+                                     strlen(GroupManagerResult_toString(incResult)) + 1);
+            return;
+        }
+        LOG_DEBUG("Group %s ref count is %zu", groupName, Group_GetRefCount(group));
+        ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
+        return;
+    }
+
+    LOG_ERROR("Failed to add user to group: %s", UserManagerResult_toString(result));
+    ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, UserManagerResult_toString(result), strlen(UserManagerResult_toString(result)) + 1);
+    return;
 }
 
 static void ServerManager_ActionLeaveGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
-    (void)a_manager; (void)a_message;
-    ActionNotImplemented(a_record, "leave_group");
+
+    // 1. Get group name and validate it
+    char* groupName = (char*)a_message->m_value;
+    // Check if group exists
+    Group* group = NULL;
+    GroupManagerResult getGroupResult = GroupManager_GetGroup(a_manager->m_groupManager, groupName, &group);
+    if (getGroupResult != GROUP_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to get group: %s", GroupManagerResult_toString(getGroupResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, GroupManagerResult_toString(getGroupResult), strlen(GroupManagerResult_toString(getGroupResult)) + 1);
+        return;
+    }
+    // Check if user is logged in
+    bool isLoggedIn;
+    UserManager_IsUserLoggedIn(a_manager->m_userManager, NULL, a_record->m_fdConnection, &isLoggedIn);
+    if (isLoggedIn == false)
+    {
+        LOG_ERROR("User is not logged in");
+        ServerManager_SendOrLog(a_record, CHAT_ERR_NOT_LOGGED_IN, NULL, 0);
+        return;
+    }
+    // Check if user is in group
+    bool isInGroup;
+    UserManagerResult result = UserManager_IsUserInGroup(a_manager->m_userManager, a_record->m_fdConnection, groupName, &isInGroup);
+    if (result != USER_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to check if user is in group: %s", UserManagerResult_toString(result));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, UserManagerResult_toString(result), strlen(UserManagerResult_toString(result)) + 1);
+        return;
+    }
+    if (isInGroup == false)
+    {
+        LOG_ERROR("User is not in group");
+        ServerManager_SendOrLog(a_record, CHAT_ERR_NOT_IN_GROUP, NULL, 0);
+        return;
+    }
+
+    // 2. Remove Group from User's groups
+    UserManagerResult removeResult = UserManager_RemoveUserFromGroup(a_manager->m_userManager, a_record->m_fdConnection, groupName);
+    if (removeResult != USER_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to remove group from user: %s", UserManagerResult_toString(removeResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, UserManagerResult_toString(removeResult), strlen(UserManagerResult_toString(removeResult)) + 1);
+        return;
+    }
+    // 3. Decrease Group ref count
+    GroupManagerResult decreaseResult = GroupManager_DecreaseGroupRefCount(a_manager->m_groupManager, groupName, NULL);
+    if (decreaseResult != GROUP_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to decrease group ref count: %s", GroupManagerResult_toString(decreaseResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, GroupManagerResult_toString(decreaseResult), strlen(GroupManagerResult_toString(decreaseResult)) + 1);
+        return;
+    }
+    GroupManager_RemoveGroupIfEmpty(a_manager->m_groupManager, groupName);
+    LOG_INFO("User left Group %s", groupName);
+    ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
+    return;
 }
 
 static void ServerManager_ActionListUsers(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
-    (void)a_manager; (void)a_message;
-    ActionNotImplemented(a_record, "list_users");
+    (void)a_message;
+
+    /* Log the full dump server-side for monitoring. */
+    UserManager_GetAllUsersAndTheirGroups(a_manager->m_userManager);
+
+    /* UserManager_FormatAllUsersAndGroups truncates to fit the buffer, so a
+     * wire-sized buffer is always safe and never exceeds CHAT_MAX_VALUE. This
+     * also handles the empty case (no users -> empty string). */
+    char bufferUsers[CHAT_MAX_VALUE];
+    UserManagerResult formatResult = UserManager_FormatAllUsersAndGroups(
+        a_manager->m_userManager, bufferUsers, sizeof(bufferUsers));
+    if (formatResult != USER_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Failed to format user list: %s", UserManagerResult_toString(formatResult));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC,
+            "Failed to list users", strlen("Failed to list users") + 1);
+        return;
+    }
+
+    /* Send the actual string length (including the null terminator), not the
+     * buffer capacity, so the client renders exactly the lines produced. */
+    ServerManager_SendOrLog(a_record, CHAT_OK,
+        bufferUsers, strlen(bufferUsers) + 1);
 }
 
 static void ServerManager_ActionListGroups(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
@@ -311,7 +499,7 @@ static void ServerManager_ActionListGroups(ServerManager* a_manager, const TcpCo
     {
         LOG_ERROR("Failed to format group list");
         ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC,
-            "Failed to list groups", sizeof("Failed to list groups"));
+            "Failed to list groups", strlen("Failed to list groups") + 1);
         return;
     }
 
