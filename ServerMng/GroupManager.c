@@ -182,6 +182,25 @@ GroupManager_GetGroup(GroupManager* a_manager, const char* a_name, Group** a_out
 }
 
 GroupManagerResult
+GroupManager_GetGroupEndpoint(GroupManager* a_manager, const char* a_name, GroupEndpoint* a_outEndpoint)
+{
+    if (a_manager == NULL || a_name == NULL || a_outEndpoint == NULL)
+    {
+        return GROUP_MANAGER_RESULT_NULL_PTR;
+    }
+
+    Group* group = NULL;
+    GroupManagerResult result = GroupManager_GetGroup(a_manager, a_name, &group);
+    if (result != GROUP_MANAGER_RESULT_SUCCESS)
+    {
+        return result;
+    }
+
+    *a_outEndpoint = Group_GetEndpoint(group);
+    return GROUP_MANAGER_RESULT_SUCCESS;
+}
+
+GroupManagerResult
 GroupManager_RemoveGroupIfEmpty(GroupManager* a_manager, const char* a_name)
 {
     Group* group = NULL;

@@ -10,6 +10,7 @@
 #include "config.h"
 #include "NetworkProtocol.h"
 #include "User.h"
+#include "network_utils.h"
 
 struct ServerManager
 {
@@ -25,6 +26,8 @@ static void ServerManagerCallbackRecv(void* a_context, const TcpConnectionRecord
 static ServerResult ServerManager_SendMessage(const int a_fd, ChatStatus a_status, const char* a_message, size_t a_length);
 static void ServerManager_SendOrLog(const TcpConnectionRecord* a_record, ChatStatus a_status, const char* a_message, size_t a_length);
 static void ServerManager_LeaveAllGroups(ServerManager* a_manager, int a_fdConnection);
+static void ServerManager_CleanupSession(ServerManager* a_manager, const TcpConnectionRecord* a_record);
+static void ServerManager_SendGroupEndpoint(ServerManager* a_manager, const TcpConnectionRecord* a_record, const char* a_groupName);
 
 static size_t ServerManagerHashFunctionDJB2(const void* a_key);
 static int ServerManagerEqualFunction(const void* a_firstKey, const void* a_secondKey);
@@ -168,15 +171,8 @@ static void
 ServerManagerCallbackDisconnect(void* a_context, const TcpConnectionRecord* a_record)
 {
     ServerManager* manager = (ServerManager*)a_context;
-    char* loggedOutUsername = NULL;
-    UserManagerResult removeUserResult =
-        UserManager_Logout(manager->m_userManager, a_record->m_fdConnection, &loggedOutUsername);
-    LOG_INFO("Disconnection from %s:%d, username: %s, result: %s",
-             a_record->m_ip,
-             a_record->m_port,
-             loggedOutUsername != NULL ? loggedOutUsername : "(none)",
-             UserManagerResult_toString(removeUserResult));
-    free(loggedOutUsername);
+    LOG_INFO("Disconnection from %s:%d", a_record->m_ip, a_record->m_port);
+    ServerManager_CleanupSession(manager, a_record);
 }
 
 static void
@@ -220,12 +216,6 @@ static void ServerManager_ActionRegister(ServerManager* a_manager, const TcpConn
     ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
 }
 
-static void ActionNotImplemented(const TcpConnectionRecord* a_record, const char* a_name)
-{
-    LOG_INFO("Action '%s' not yet implemented", a_name);
-    ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, "Not implemented", sizeof("Not implemented"));
-}
-
 static void ServerManager_ActionLogin(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
     const char* username = (const char*)a_message->m_value;
@@ -251,6 +241,7 @@ static void ServerManager_ActionLogin(ServerManager* a_manager, const TcpConnect
 static void 
 ServerManager_ActionLogout(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
+    (void)a_message;
 
     LOG_DEBUG("Logging out user: %d", a_record->m_fdConnection);
 
@@ -264,33 +255,8 @@ ServerManager_ActionLogout(ServerManager* a_manager, const TcpConnectionRecord* 
         return;
     }
 
-    // 1. get user group count
-    size_t userGroupCount = 0;
-    UserManager_GetUserGroupCount(a_manager->m_userManager, a_record->m_fdConnection, &userGroupCount);
-    
-    // 2. if user is in groups, decrease group ref count and remove group if empty
-    if (userGroupCount > 0)
-    {
-        char* userGroups[userGroupCount];
-        size_t numberOfGroupsWritten = 0;
-        UserManager_GetUserGroups(a_manager->m_userManager, 
-            a_record->m_fdConnection, 
-            (const char**)userGroups, 
-            userGroupCount, 
-            &numberOfGroupsWritten);
-        
-        SOFT_ASSERT(numberOfGroupsWritten == userGroupCount);
-        // Exit groups
-        for (size_t i = 0; i < userGroupCount; i++)
-        {
-            GroupManager_DecreaseGroupRefCount(a_manager->m_groupManager, userGroups[i], NULL);
-            GroupManagerResult removeResult = GroupManager_RemoveGroupIfEmpty(a_manager->m_groupManager, userGroups[i]);
-            if (removeResult == GROUP_MANAGER_RESULT_SUCCESS)
-            {
-                LOG_INFO("Group %s removed", userGroups[i]);
-            }
-        }
-    }
+    // 1. & 2. leave all groups (decrease ref count, remove if empty)
+    ServerManager_LeaveAllGroups(a_manager, a_record->m_fdConnection);
 
     // 3. logout user
     char* username; // for logging
@@ -309,13 +275,113 @@ ServerManager_ActionLogout(ServerManager* a_manager, const TcpConnectionRecord* 
     return;
 }
 
-static void 
-ServerManager_ActionExit(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+/* Decrease the ref count of every group the user belongs to and remove any that
+ * become empty. Safe to call for a user that is in no groups. Shared by logout
+ * and exit. */
+static void
+ServerManager_LeaveAllGroups(ServerManager* a_manager, int a_fdConnection)
 {
-    (void)a_manager; (void)a_message;
-    ActionNotImplemented(a_record, "exit");
+    size_t userGroupCount = 0;
+    UserManager_GetUserGroupCount(a_manager->m_userManager, a_fdConnection, &userGroupCount);
+    if (userGroupCount == 0)
+    {
+        return;
+    }
+
+    char* userGroups[userGroupCount];
+    size_t numberOfGroupsWritten = 0;
+    UserManager_GetUserGroups(a_manager->m_userManager,
+        a_fdConnection,
+        (const char**)userGroups,
+        userGroupCount,
+        &numberOfGroupsWritten);
+
+    SOFT_ASSERT(numberOfGroupsWritten == userGroupCount);
+    for (size_t i = 0; i < userGroupCount; i++)
+    {
+        GroupManager_DecreaseGroupRefCount(a_manager->m_groupManager, userGroups[i], NULL);
+        GroupManagerResult removeResult = GroupManager_RemoveGroupIfEmpty(a_manager->m_groupManager, userGroups[i]);
+        if (removeResult == GROUP_MANAGER_RESULT_SUCCESS)
+        {
+            LOG_INFO("Group %s removed", userGroups[i]);
+        }
+    }
 }
 
+/* Tear down a connection's session: leave all groups and log the user out. A
+ * client may exit/disconnect without ever logging in, so the absence of a
+ * session is tolerated. Does not touch the socket and does not reply, so it is
+ * safe to call from the disconnect callback where the peer is already gone. */
+static void
+ServerManager_CleanupSession(ServerManager* a_manager, const TcpConnectionRecord* a_record)
+{
+    bool isLoggedIn = false;
+    UserManager_IsUserLoggedIn(a_manager->m_userManager, NULL, a_record->m_fdConnection, &isLoggedIn);
+    if (isLoggedIn == false)
+    {
+        return;
+    }
+
+    ServerManager_LeaveAllGroups(a_manager, a_record->m_fdConnection);
+
+    char* username = NULL;
+    UserManagerResult logoutResult =
+        UserManager_Logout(a_manager->m_userManager, a_record->m_fdConnection, &username);
+    if (logoutResult != USER_MANAGER_RESULT_SUCCESS)
+    {
+        LOG_ERROR("Session cleanup: failed to logout fd %d: %s",
+            a_record->m_fdConnection, UserManagerResult_toString(logoutResult));
+    }
+    else
+    {
+        LOG_INFO("Session cleanup: logged out user %s", username != NULL ? username : a_record->m_ip);
+    }
+    free(username);
+}
+
+static void
+ServerManager_ActionExit(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
+{
+    (void)a_message;
+
+    LOG_DEBUG("Exit requested by fd: %d", a_record->m_fdConnection);
+
+    /* The socket teardown is driven by the client closing the connection, which
+     * subsequently fires ServerManagerCallbackDisconnect. */
+    ServerManager_CleanupSession(a_manager, a_record);
+    ServerManager_SendOrLog(a_record, CHAT_OK, "Goodbye", sizeof("Goodbye"));
+}
+
+
+/* Reply CHAT_OK with the group's multicast endpoint formatted as "ip:port".
+ * The client uses this to join the group's UDP multicast channel. */
+static void
+ServerManager_SendGroupEndpoint(ServerManager* a_manager, const TcpConnectionRecord* a_record, const char* a_groupName)
+{
+    GroupEndpoint ep;
+    GroupManagerResult result = GroupManager_GetGroupEndpoint(a_manager->m_groupManager, a_groupName, &ep);
+    if (result != GROUP_MANAGER_RESULT_SUCCESS)
+    {
+        /* The group was just created/joined, so a missing endpoint is a bug. */
+        SOFT_ASSERT(false);
+        LOG_ERROR("Failed to get group endpoint: %s", GroupManagerResult_toString(result));
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC,
+            GroupManagerResult_toString(result), strlen(GroupManagerResult_toString(result)) + 1);
+        return;
+    }
+
+    char ipbuf[INET_ADDRSTRLEN];
+    char endpoint[CONF_MULTICAST_ENDPOINT_STR_MAX];
+    network_convert_ip_n_to_p(ep.m_multicastAddr, ipbuf);
+    int n = snprintf(endpoint, sizeof(endpoint), "%s:%u", ipbuf, (unsigned)ep.m_port);
+    if (n < 0 || (size_t)n >= sizeof(endpoint))
+    {
+        LOG_ERROR("Failed to format group endpoint");
+        ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
+        return;
+    }
+    ServerManager_SendOrLog(a_record, CHAT_OK, endpoint, (size_t)n + 1);
+}
 
 static void ServerManager_ActionCreateGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
 {
@@ -348,7 +414,9 @@ static void ServerManager_ActionCreateGroup(ServerManager* a_manager, const TcpC
     // Increase group ref count
     GroupManager_IncreaseGroupRefCount(a_manager->m_groupManager, groupName, NULL);
     LOG_INFO("Group created: %s", groupName);
-    ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
+
+    // Return the group's multicast endpoint to the creator
+    ServerManager_SendGroupEndpoint(a_manager, a_record, groupName);
 }
 
 static void ServerManager_ActionJoinGroup(ServerManager* a_manager, const TcpConnectionRecord* a_record, const ChatMessage* a_message)
@@ -388,7 +456,7 @@ static void ServerManager_ActionJoinGroup(ServerManager* a_manager, const TcpCon
             return;
         }
         LOG_DEBUG("Group %s ref count is %zu", groupName, Group_GetRefCount(group));
-        ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
+        ServerManager_SendGroupEndpoint(a_manager, a_record, groupName);
         return;
     }
 

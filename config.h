@@ -20,3 +20,7 @@
 #define CONF_MULTICAST_BASE_IP   "239.0.0.1"
 #define CONF_MULTICAST_PORT_BASE 5000
 #define CONF_MULTICAST_MAX_GROUPS 1000
+
+/* Buffer size for a formatted "ip:port" endpoint string, NUL included.
+ * Derived from INET_ADDRSTRLEN (16: dotted-quad + NUL) + ':' + "65535" = 22. */
+#define CONF_MULTICAST_ENDPOINT_STR_MAX 22

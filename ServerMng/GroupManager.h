@@ -62,6 +62,15 @@ GroupManagerResult GroupManager_GetGroup(GroupManager* a_manager,
                                          Group** a_outGroup);
 
 /**
+ * @brief Get a group's multicast endpoint by name.
+ * @param[out] a_outEndpoint - filled with the group's endpoint on success.
+ * @return GROUP_MANAGER_RESULT_SUCCESS, _NULL_PTR, or _NOT_FOUND.
+ */
+GroupManagerResult GroupManager_GetGroupEndpoint(GroupManager* a_manager,
+                                                 const char* a_name,
+                                                 GroupEndpoint* a_outEndpoint);
+
+/**
  * @brief Remove a group only when no users reference it (ref count is 0).
  */
 GroupManagerResult GroupManager_RemoveGroupIfEmpty(GroupManager* a_manager,
