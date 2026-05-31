@@ -348,8 +348,6 @@ the menu on the very next render.
 
 This is the most involved interaction: a control-plane round trip *plus* spawning two
 helper processes and collecting their PIDs over the message queue.
-
-```mermaid
 sequenceDiagram
     autonumber
     actor User
@@ -376,12 +374,13 @@ sequenceDiagram
         MQ-->>GW: ChatPidMsg {role, pid}
         GW->>GW: store into GroupPids by role
     end
+    
     alt a PID times out
         GW->>GW: KillPids(partial) ; return PID_TIMEOUT
     end
+    
     GW->>GW: HashMap_Insert(strdup(group) → GroupPids)
     GW-->>App: GROUP_WINDOWS_SUCCESS
-```
 
 Why two windows arrive in arbitrary order: `gnome-terminal` returns immediately and
 the helpers race to report their PID. `CollectPid` keys each arriving `ChatPidMsg` by
