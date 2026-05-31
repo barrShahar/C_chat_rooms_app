@@ -348,6 +348,8 @@ the menu on the very next render.
 
 This is the most involved interaction: a control-plane round trip *plus* spawning two
 helper processes and collecting their PIDs over the message queue.
+
+```mermaid
 sequenceDiagram
     autonumber
     actor User
