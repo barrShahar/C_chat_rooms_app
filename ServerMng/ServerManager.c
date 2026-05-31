@@ -377,7 +377,7 @@ ServerManager_SendGroupEndpoint(ServerManager* a_manager, const TcpConnectionRec
     if (n < 0 || (size_t)n >= sizeof(endpoint))
     {
         LOG_ERROR("Failed to format group endpoint");
-        ServerManager_SendOrLog(a_record, CHAT_OK, NULL, 0);
+        ServerManager_SendOrLog(a_record, CHAT_ERR_GENERIC, "Failed to format group endpoint", strlen("Failed to format group endpoint") + 1);
         return;
     }
     ServerManager_SendOrLog(a_record, CHAT_OK, endpoint, (size_t)n + 1);
