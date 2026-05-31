@@ -360,17 +360,17 @@ sequenceDiagram
     participant Recv as chat_receiver (window)
     participant Send as chat_sender (window)
 
-    User->>App: Create/Join group → enters group name
+    User->>App: Create/Join group -> enters group name
     App->>Server: OPCODE_CREATE_GROUP / JOIN_GROUP ("group\0")
     Server-->>App: OPCODE_RESPONSE CHAT_OK, value="239.0.0.1:5000"
-    App->>App: ParseEndpoint("ip:port") → ip, port
+    App->>App: ParseEndpoint("ip:port") -> ip, port
 
     App->>GW: GroupWindows_Open(group, ip, port, username)
-    Note over GW: if group already tracked → Close() first
+    Note over GW: if group already tracked -> Close() first
     GW->>Recv: system("gnome-terminal -- chat_receiver ip port")
-    Recv->>MQ: ChatIpc_ReportPid(RECEIVER) → {role, pid}
+    Recv->>MQ: ChatIpc_ReportPid(RECEIVER) -> {role, pid}
     GW->>Send: system("gnome-terminal -- chat_sender ip port username")
-    Send->>MQ: ChatIpc_ReportPid(SENDER) → {role, pid}
+    Send->>MQ: ChatIpc_ReportPid(SENDER) -> {role, pid}
 
     loop collect 2 PIDs (mq_timedreceive, 5s deadline)
         MQ-->>GW: ChatPidMsg {role, pid}
@@ -381,7 +381,7 @@ sequenceDiagram
         GW->>GW: KillPids(partial) ; return PID_TIMEOUT
     end
 
-    GW->>GW: HashMap_Insert(strdup(group) → GroupPids)
+    GW->>GW: HashMap_Insert(strdup(group) to GroupPids)
     GW-->>App: GROUP_WINDOWS_SUCCESS
 
 Why two windows arrive in arbitrary order: `gnome-terminal` returns immediately and
