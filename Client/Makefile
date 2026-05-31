@@ -3,9 +3,10 @@ FLAGS = -g -Wall -Wextra -std=c11 -D_DEFAULT_SOURCE \
         -I. \
         -I.. \
         -I../ClientNet \
-        -I../utils
+        -I../utils \
+        -I../db
 
-SRCS = ClientApp.c Menu.c
+SRCS = ClientApp.c Menu.c GroupWindows.c
 OBJS = $(patsubst %.c, build/%.o, $(SRCS))
 
 LIB_TARGET  = lib/libclientapp.a

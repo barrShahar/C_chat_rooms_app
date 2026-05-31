@@ -24,3 +24,17 @@
 /* Buffer size for a formatted "ip:port" endpoint string, NUL included.
  * Derived from INET_ADDRSTRLEN (16: dotted-quad + NUL) + ':' + "65535" = 22. */
 #define CONF_MULTICAST_ENDPOINT_STR_MAX 22
+
+/* Chat window IPC: POSIX message queue used by the spawned chat_sender /
+ * chat_receiver programs to report their PIDs back to the main client, and the
+ * max multicast chat datagram payload. */
+#define CONF_CHAT_PID_QUEUE_NAME "/chat_pids"  /* must start with '/' */
+#define CONF_CHAT_MSG_MAX        512           /* bytes */
+/* Queue buffer depth, not a group/window cap: at most 2 PID messages (sender +
+ * receiver) are ever pending before the client drains them. Must stay <=
+ * /proc/sys/fs/mqueue/msg_max (default 10). */
+#define CONF_CHAT_PID_QUEUE_MAXMSG 8
+#define CONF_CHAT_WINDOWS_MAP_SIZE 16          /* hash buckets for tracked groups */
+#define CONF_CHAT_PID_WAIT_SECONDS 5           /* timeout waiting for a window's PID */
+/* Upper bound for a "gnome-terminal -- <bin> <ip> <port> <username>" command. */
+#define CONF_CHAT_SPAWN_CMD_MAX 256

@@ -4,13 +4,15 @@
 #include "ClientApp.h"
 #include "Menu.h"
 #include "ClientController.h"
+#include "GroupWindows.h"
 #include "NetworkProtocol.h"
 #include "config.h"
-#include "logger.h"     
+#include "logger.h"
 
 struct ClientApp
 {
     ClientController* m_controller;
+    GroupWindows*     m_windows;
     SessionState      m_state;
     char*             m_username;
     char*             m_password;
@@ -33,6 +35,14 @@ ClientApp* ClientApp_Create(const char* a_ip, uint16_t a_port)
         free(app);
         return NULL;
     }
+    app->m_windows = GroupWindows_Create();
+    if (app->m_windows == NULL)
+    {
+        LOG_ERROR("Failed to create group windows manager");
+        ClientController_Destroy(&app->m_controller);
+        free(app);
+        return NULL;
+    }
     app->m_state = SESSION_DISCONNECTED;
     strcpy(app->m_ip, a_ip);
     app->m_port = a_port;
@@ -49,6 +59,7 @@ void ClientApp_Destroy(ClientApp** a_app)
     {
         ClientController_Stop((*a_app)->m_controller);
     }
+    GroupWindows_Destroy(&(*a_app)->m_windows);   /* closes any open chat windows */
     ClientController_Destroy(&(*a_app)->m_controller);
     free(*a_app);
     *a_app = NULL;
@@ -257,6 +268,33 @@ static void HandleCredentialedAction(ClientApp* a_app, MessageOpcode a_opcode,
     }
 }
 
+/* Parse an "ip:port" endpoint (e.g. "239.0.0.1:5000") into a_ipOut / a_portOut.
+ * Returns true on success, false if malformed. */
+static bool ParseEndpoint(const char* a_endpoint, char* a_ipOut, size_t a_ipSize, uint16_t* a_portOut)
+{
+    const char* colon = strchr(a_endpoint, ':');
+    if (colon == NULL)
+    {
+        return false;
+    }
+
+    size_t ipLen = (size_t)(colon - a_endpoint);
+    if (ipLen == 0 || ipLen >= a_ipSize)
+    {
+        return false;
+    }
+    memcpy(a_ipOut, a_endpoint, ipLen);
+    a_ipOut[ipLen] = '\0';
+
+    int port = atoi(colon + 1);
+    if (port <= 0 || port > 65535)
+    {
+        return false;
+    }
+    *a_portOut = (uint16_t)port;
+    return true;
+}
+
 static void HandleGroupAction(ClientApp* a_app, MessageOpcode a_opcode)
 {
     char groupName[128];
@@ -283,6 +321,31 @@ static void HandleGroupAction(ClientApp* a_app, MessageOpcode a_opcode)
         return;
     }
     PrintResponse(&resp);
+    if (resp.m_status != CHAT_OK)
+    {
+        return;
+    }
+
+    /* On a successful create/join the server returns the group's multicast
+     * endpoint; spawn the chat windows for it. On leave, close them. */
+    if (a_opcode == OPCODE_CREATE_GROUP || a_opcode == OPCODE_JOIN_GROUP)
+    {
+        char ip[CONF_MULTICAST_ENDPOINT_STR_MAX];
+        uint16_t port = 0;
+        if (!ParseEndpoint(resp.m_value, ip, sizeof(ip), &port))
+        {
+            printf("Could not parse group endpoint '%.*s'\n", (int)resp.m_length, resp.m_value);
+            return;
+        }
+        if (GroupWindows_Open(a_app->m_windows, groupName, ip, port, a_app->m_username) != GROUP_WINDOWS_SUCCESS)
+        {
+            printf("Failed to open chat windows for group '%s'.\n", groupName);
+        }
+    }
+    else if (a_opcode == OPCODE_LEAVE_GROUP)
+    {
+        GroupWindows_Close(a_app->m_windows, groupName);
+    }
 }
 
 static void HandleLogout(ClientApp* a_app)
@@ -301,7 +364,11 @@ static void HandleLogout(ClientApp* a_app)
         return;
     }
     PrintResponse(&resp);
-    if (resp.m_status == CHAT_OK) a_app->m_state = SESSION_CONNECTED;
+    if (resp.m_status == CHAT_OK)
+    {
+        GroupWindows_CloseAll(a_app->m_windows);   /* logout leaves all groups */
+        a_app->m_state = SESSION_CONNECTED;
+    }
 }
 
 static void HandleListAction(ClientApp* a_app, MessageOpcode a_opcode)
@@ -337,6 +404,7 @@ static void HandleExit(ClientApp* a_app)
         /* Best-effort notify; ignore errors since we're tearing down anyway. */
         (void)ClientController_Send(a_app->m_controller, sendBuf, (size_t)sentLen);
     }
+    GroupWindows_CloseAll(a_app->m_windows);   /* close any open chat windows */
     ClientController_Stop(a_app->m_controller);
     a_app->m_state = SESSION_DISCONNECTED;
 }
