@@ -356,33 +356,35 @@ sequenceDiagram
     participant App as ClientApp
     participant Server
     participant GW as GroupWindows
-    participant MQ as POSIX mq (/chat_pids)
-    participant Recv as chat_receiver (window)
-    participant Send as chat_sender (window)
+    participant MQ as POSIX mq /chat_pids
+    participant Recv as chat_receiver window
+    participant Send as chat_sender window
 
     User->>App: Create/Join group -> enters group name
-    App->>Server: OPCODE_CREATE_GROUP / JOIN_GROUP ("group\0")
-    Server-->>App: OPCODE_RESPONSE CHAT_OK, value="239.0.0.1:5000"
-    App->>App: ParseEndpoint("ip:port") -> ip, port
+    App->>Server: OPCODE_CREATE_GROUP / JOIN_GROUP
+    Server-->>App: OPCODE_RESPONSE CHAT_OK, value=239.0.0.1:5000
+    App->>App: ParseEndpoint -> ip, port
 
     App->>GW: GroupWindows_Open(group, ip, port, username)
-    Note over GW: if group already tracked -> Close() first
-    GW->>Recv: system("gnome-terminal -- chat_receiver ip port")
+    Note over GW: if group already tracked, Close() first
+    GW->>Recv: system gnome-terminal -- chat_receiver ip port
     Recv->>MQ: ChatIpc_ReportPid(RECEIVER) -> {role, pid}
-    GW->>Send: system("gnome-terminal -- chat_sender ip port username")
+    GW->>Send: system gnome-terminal -- chat_sender ip port username
     Send->>MQ: ChatIpc_ReportPid(SENDER) -> {role, pid}
 
-    loop collect 2 PIDs (mq_timedreceive, 5s deadline)
+    loop collect 2 PIDs via mq_timedreceive 5s deadline
         MQ-->>GW: ChatPidMsg {role, pid}
         GW->>GW: store into GroupPids by role
     end
 
     alt a PID times out
-        GW->>GW: KillPids(partial) ; return PID_TIMEOUT
+        Note over GW: KillPids(partial)
+        GW-->>App: PID_TIMEOUT
+    else success
+        GW->>GW: HashMap_Insert(strdup(group) to GroupPids)
+        GW-->>App: GROUP_WINDOWS_SUCCESS
     end
-
-    GW->>GW: HashMap_Insert(strdup(group) to GroupPids)
-    GW-->>App: GROUP_WINDOWS_SUCCESS
+```
 
 Why two windows arrive in arbitrary order: `gnome-terminal` returns immediately and
 the helpers race to report their PID. `CollectPid` keys each arriving `ChatPidMsg` by
