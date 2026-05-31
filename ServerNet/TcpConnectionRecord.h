@@ -1,10 +1,11 @@
 #pragma once
 #include <stdint.h>
+#include <arpa/inet.h>   /* INET_ADDRSTRLEN */
 
 typedef struct TcpConnectionRecord
 {
     int m_fdConnection;
-    char m_ip[16];
+    char m_ip[INET_ADDRSTRLEN];
     int m_port;
 } TcpConnectionRecord;
 

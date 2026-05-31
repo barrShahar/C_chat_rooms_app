@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>   /* INET_ADDRSTRLEN */
 #include "ClientApp.h"
 #include "Menu.h"
 #include "ClientController.h"
@@ -16,7 +17,7 @@ struct ClientApp
     SessionState      m_state;
     char*             m_username;
     char*             m_password;
-    char              m_ip[32];
+    char              m_ip[INET_ADDRSTRLEN];
     uint16_t          m_port;
 };
 
