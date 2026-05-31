@@ -438,11 +438,11 @@ sequenceDiagram
     participant Win as chat windows
 
     alt Leave group
-        User->>App: Leave group → group name
+        User->>App: Leave group -> group name
         App->>Server: OPCODE_LEAVE_GROUP
         Server-->>App: CHAT_OK
         App->>GW: GroupWindows_Close(group)
-        GW->>Win: kill(SIGTERM) sender + receiver
+        GW->>Win: kill SIGTERM sender + receiver
         GW->>GW: remove group from map
     else Logout
         User->>App: Logout
@@ -452,10 +452,11 @@ sequenceDiagram
         GW->>Win: SIGTERM every tracked pair
         App->>App: state = SESSION_CONNECTED
     else Exit
-        User->>App: Exit (or EOF on stdin)
-        App->>Server: OPCODE_EXIT (best-effort, errors ignored)
+        User->>App: Exit or EOF on stdin
+        App->>Server: OPCODE_EXIT best-effort errors ignored
         App->>GW: GroupWindows_CloseAll()
-        App->>App: ClientController_Stop() ; state = DISCONNECTED
+        Note over App: ClientController_Stop()
+        App->>App: state = DISCONNECTED
     end
 ```
 
