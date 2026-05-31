@@ -376,11 +376,11 @@ sequenceDiagram
         MQ-->>GW: ChatPidMsg {role, pid}
         GW->>GW: store into GroupPids by role
     end
-    
+
     alt a PID times out
         GW->>GW: KillPids(partial) ; return PID_TIMEOUT
     end
-    
+
     GW->>GW: HashMap_Insert(strdup(group) → GroupPids)
     GW-->>App: GROUP_WINDOWS_SUCCESS
 
