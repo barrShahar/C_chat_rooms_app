@@ -21,6 +21,7 @@ static int UserManagerEqualFunctionFd(const void* a_firstKey, const void* a_seco
 static UserManagerResult FormatUserGroupsLine(const User* a_user, char* a_buf, size_t a_bufSize);
 static int PrintUserGroupsLine(const void* a_key, void* a_value, void* a_context);
 static int AppendUserGroupsLine(const void* a_key, void* a_value, void* a_context);
+static void UserManager_DestroyUserAdapter(void* a_value);
 
 typedef struct FormatAllUsersContext
 {
@@ -135,6 +136,7 @@ UserManager_RemoveUserFromGroup(UserManager* a_manager, const int a_fdConnection
     return USER_MANAGER_RESULT_SUCCESS;
 }
 
+
 void 
 UserManager_Destroy(UserManager** a_manager)
 {
@@ -143,8 +145,8 @@ UserManager_Destroy(UserManager** a_manager)
         return;
     }
 
-    HashMap_Destroy(&(*a_manager)->m_usersByName, NULL, NULL);
-    HashMap_Destroy(&(*a_manager)->m_usersByFd, NULL, NULL);
+    HashMap_Destroy(&(*a_manager)->m_usersByName, free, UserManager_DestroyUserAdapter);
+    HashMap_Destroy(&(*a_manager)->m_usersByFd, free, NULL);
     free(*a_manager);
     *a_manager = NULL;
 }
@@ -607,4 +609,11 @@ static int
 UserManagerEqualFunctionFd(const void* a_firstKey, const void* a_secondKey)
 {
     return *(int*)a_firstKey == *(int*)a_secondKey;
+}
+
+static void
+UserManager_DestroyUserAdapter(void* a_value)
+{
+    User* user = (User*)a_value;
+    User_Destroy(&user);
 }
