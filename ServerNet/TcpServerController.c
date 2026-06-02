@@ -2,6 +2,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <sys/select.h>
 #include "TcpServerController.h"
 #include "TcpConnectionAcceptor.h"
 #include "network_utils.h"

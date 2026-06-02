@@ -315,8 +315,7 @@ static void
 DestroyRecord(void* a_item)
 {
     TcpConnectionRecord* record = (TcpConnectionRecord*)a_item;
-    close(record->m_fdConnection);
-    free(record);
+    TcpConnectionRecord_Destroy(&record);
 }
 
 static int 

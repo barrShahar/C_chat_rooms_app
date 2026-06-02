@@ -143,6 +143,8 @@ UserManager_Destroy(UserManager** a_manager)
         return;
     }
 
+    HashMap_Destroy(&(*a_manager)->m_usersByName, NULL, NULL);
+    HashMap_Destroy(&(*a_manager)->m_usersByFd, NULL, NULL);
     free(*a_manager);
     *a_manager = NULL;
 }
