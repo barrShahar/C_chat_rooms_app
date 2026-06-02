@@ -90,7 +90,7 @@ struct TcpConnectionHandler
 static void* ClientHandlerIOLoop(void* a_handler);
 static void DestroyRecord(void* a_item);
 static int WaitForActivity(TcpConnectionHandler* handler);
-static void CheckForNewConnections(TcpConnectionHandler* handler, int* nReady);
+static void RegisterNewConnectionsFromAcceptor(TcpConnectionHandler* handler, int* nReady);
 static void ServiceExistingConnections(TcpConnectionHandler* handler, int* nReady);
 
 // API 
@@ -299,7 +299,7 @@ ClientHandlerIOLoop(void* a_handler)
         if (nReady == 0) continue; // Loop again on timeout or interrupt
 
         // 1. Handle main thread tapping us on the shoulder
-        CheckForNewConnections(handler, &nReady);
+        RegisterNewConnectionsFromAcceptor(handler, &nReady);
         
         // 2. Handle actual client data (if there are still unhandled events)
         if (nReady > 0) 
@@ -336,7 +336,7 @@ WaitForActivity(TcpConnectionHandler* handler)
 }
 
 static void 
-CheckForNewConnections(TcpConnectionHandler* handler, int* nReady) 
+RegisterNewConnectionsFromAcceptor(TcpConnectionHandler* handler, int* nReady) 
 {
     if (FD_ISSET(handler->m_wakeupPipe[0], &handler->m_activeFdSetCopy)) 
     {
