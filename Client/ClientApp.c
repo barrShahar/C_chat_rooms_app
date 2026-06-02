@@ -418,7 +418,7 @@ int ClientApp_Run(ClientApp* a_app)
 {
     if (a_app == NULL) return 1;
 
-    char line[64];
+    char line[CONF_MENU_LINE_MAX];
     for (;;)
     {
         Menu_Render(a_app->m_state);

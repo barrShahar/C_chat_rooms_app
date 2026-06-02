@@ -33,7 +33,7 @@ struct GroupWindows
 
 /* ---- HashMap callbacks (string keys, GroupPids values) ------------------- */
 
-/* DJB2 string hash, matching the convention used elsewhere in the project. */
+/* DJB2 string hash function */
 static size_t HashGroupName(const void* a_key)
 {
     const char* str = (const char*)a_key;
@@ -52,22 +52,11 @@ static int GroupNamesEqual(const void* a_first, const void* a_second)
     return strcmp((const char*)a_first, (const char*)a_second) == 0;
 }
 
-/* Free a strdup'd group-name key. */
-static void DestroyGroupName(void* a_key)
-{
-    free(a_key);
-}
-
-/* Free a GroupPids value (flat struct, no nested allocations). */
-static void DestroyGroupPids(void* a_value)
-{
-    free(a_value);
-}
-
 /* -------------------------------------------------------------------------- */
 
 GroupWindows* GroupWindows_Create(void)
 {
+    /* Allocate memory for the GroupWindows struct */
     GroupWindows* self = (GroupWindows*)malloc(sizeof(GroupWindows));
     if (self == NULL)
     {
@@ -75,6 +64,7 @@ GroupWindows* GroupWindows_Create(void)
         return NULL;
     }
 
+    /* Create a hash map to store the group names and their corresponding PIDs */
     self->m_groups = HashMap_Create(CONF_CHAT_WINDOWS_MAP_SIZE, HashGroupName, GroupNamesEqual);
     if (self->m_groups == NULL)
     {
@@ -111,10 +101,10 @@ GroupWindows* GroupWindows_Create(void)
 static GroupWindowsResult SpawnWindow(const char* a_command)
 {
     LOG_DEBUG("GroupWindows: spawning window: %s", a_command);
-    int rc = system(a_command);
-    if (rc != 0)
+    int return_code = system(a_command);
+    if (return_code != 0)
     {
-        LOG_ERROR("GroupWindows: failed to spawn window (system returned %d): %s", rc, a_command);
+        LOG_ERROR("GroupWindows: failed to spawn window (system returned %d): %s", return_code, a_command);
         return GROUP_WINDOWS_SPAWN_FAILED;
     }
     return GROUP_WINDOWS_SUCCESS;
@@ -256,8 +246,8 @@ GroupWindowsResult GroupWindows_Close(GroupWindows* a_self, const char* a_groupN
     KillPids((const GroupPids*)removedValue);
     LOG_INFO("GroupWindows: closed windows for group %s", a_groupName);
 
-    DestroyGroupName(removedKey);
-    DestroyGroupPids(removedValue);
+    free(removedKey);
+    free(removedValue);
     return GROUP_WINDOWS_SUCCESS;
 }
 
@@ -280,7 +270,7 @@ void GroupWindows_CloseAll(GroupWindows* a_self)
     /* Kill every window, then clear the map (freeing keys + values) while
      * keeping an empty, usable map for any later joins (e.g. after logout). */
     HashMap_ForEach(a_self->m_groups, KillPidsForEach, NULL);
-    HashMap_Destroy(&a_self->m_groups, DestroyGroupName, DestroyGroupPids);
+    HashMap_Destroy(&a_self->m_groups, free, free);
     a_self->m_groups = HashMap_Create(CONF_CHAT_WINDOWS_MAP_SIZE, HashGroupName, GroupNamesEqual);
     if (a_self->m_groups == NULL)
     {
@@ -301,7 +291,7 @@ void GroupWindows_Destroy(GroupWindows** a_self)
     if (self->m_groups != NULL)
     {
         HashMap_ForEach(self->m_groups, KillPidsForEach, NULL);
-        HashMap_Destroy(&self->m_groups, DestroyGroupName, DestroyGroupPids);
+        HashMap_Destroy(&self->m_groups, free, free);
     }
 
     /* Tear down the PID queue so it does not linger in /dev/mqueue. */

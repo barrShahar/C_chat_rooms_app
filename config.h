@@ -38,3 +38,6 @@
 #define CONF_CHAT_PID_WAIT_SECONDS 5           /* timeout waiting for a window's PID */
 /* Upper bound for a "gnome-terminal -- <bin> <ip> <port> <username>" command. */
 #define CONF_CHAT_SPAWN_CMD_MAX 256
+
+/* Max length, in bytes (including NUL), of a single line of menu input read from stdin. */
+#define CONF_MENU_LINE_MAX 64

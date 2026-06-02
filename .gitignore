@@ -1,6 +1,6 @@
 # Build outputs
 *.o
-*.a
+# *.a
 *.so
 *.out
 *.elf
