@@ -1,7 +1,7 @@
 #ifndef __GENHEAP_H__
 #define __GENHEAP_H__
 
-#include "../../GenVector/vector.h"
+#include "GenVector/vector.h"
 
 
 typedef enum Heap_ResultCode {
