@@ -395,11 +395,16 @@ UserManager_GetAllUsersAndTheirGroups(UserManager* a_manager)
 static UserManagerResult
 FormatUserGroupsLine(const User* a_user, char* a_buf, size_t a_bufSize)
 {
-    if (a_user == NULL || a_buf == NULL || a_bufSize == 0)
+    if (a_user == NULL || a_buf == NULL)
     {
         return USER_MANAGER_RESULT_NULL_PTR;
     }
+    if (a_bufSize == 0)
+    {
+        return USER_MANAGER_RESULT_INVALID_ARGUMENT;
+    }
 
+    // 1. initialize the buffer
     a_buf[0] = '\0';
     size_t offset = 0;
     const char* username = User_GetUsername(a_user);
@@ -407,6 +412,7 @@ FormatUserGroupsLine(const User* a_user, char* a_buf, size_t a_bufSize)
     {
         return USER_MANAGER_RESULT_INTERNAL_ERROR;
     }
+    // 2. write the username
     int written = snprintf(a_buf, a_bufSize, "%s -> ", username);
     if (written < 0 || (size_t)written >= a_bufSize)
     {
@@ -414,6 +420,7 @@ FormatUserGroupsLine(const User* a_user, char* a_buf, size_t a_bufSize)
     }
     offset += (size_t)written;
 
+    // 3. write the groups
     List* groups = NULL;
     if (User_GetGroups((User*)a_user, &groups) != USER_RESULT_SUCCESS)
     {
@@ -424,13 +431,13 @@ FormatUserGroupsLine(const User* a_user, char* a_buf, size_t a_bufSize)
         snprintf(a_buf + offset, a_bufSize - offset, "(none)");
         return USER_MANAGER_RESULT_SUCCESS;
     }
-
     size_t i = 0;
     for (ListItr itr = ListItrBegin(groups); itr != ListItrEnd(groups); itr = ListItrNext(itr))
     {
         const char* groupName = (const char*)ListItrGet(itr);
         if (groupName == NULL)
         {
+            LOG_ERROR("Group name is NULL");
             continue;
         }
 
@@ -553,7 +560,6 @@ UserManager_FormatAllUsersAndGroups(UserManager* a_manager, char* a_buf, size_t 
     {
         return USER_MANAGER_RESULT_NULL_PTR;
     }
-
     a_buf[0] = '\0';
     FormatAllUsersContext ctx = {
         .m_buf = a_buf,
